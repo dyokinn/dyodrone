@@ -1,4 +1,8 @@
-"""Business logic for connecting to and commanding a drone."""
+"""Internal DroneKit base — shared flight logic for SITL and Pixhawk backends.
+
+Not meant to be instantiated directly. Use DronekitSITLController or
+DronekitPixhawkController instead.
+"""
 
 from __future__ import annotations
 
@@ -7,35 +11,31 @@ import math
 import time
 from typing import Callable, List, Optional
 
-import dronekit_sitl
-from dronekit import LocationGlobalRelative, Vehicle, VehicleMode, connect
+from dronekit import LocationGlobalRelative, Vehicle, VehicleMode, connect  # noqa: F401
+from pymavlink import mavutil
+
+from drone_controller import DroneController
 
 LOG = logging.getLogger(__name__)
 
 
-class DroneController:
-    """Encapsulates vehicle connection management and high-level commands."""
+class _DroneKitBase(DroneController):
+    """Implements all DroneKit flight operations.
+
+    Subclasses only need to override ``connect()`` (and ``close()`` for
+    backends that own additional resources such as a SITL process).
+    """
 
     def __init__(
         self,
         *,
         connection: Optional[str] = None,
-        use_simulator: bool = True,
         wait_ready: bool = True,
     ) -> None:
         self.connection = connection
-        self.use_simulator = use_simulator
         self.wait_ready = wait_ready
         self._vehicle: Optional[Vehicle] = None
-        self._sitl = None
         self._active_connection: Optional[str] = None
-
-    def __enter__(self) -> DroneController:
-        self.connect()
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
 
     @property
     def vehicle(self) -> Vehicle:
@@ -47,35 +47,12 @@ class DroneController:
     def active_connection(self) -> Optional[str]:
         return self._active_connection
 
-    def connect(self) -> Vehicle:
-        if self._vehicle:
-            return self._vehicle
-
-        connection_string = self.connection
-        if self.use_simulator:
-            LOG.info("Starting simulator (SITL)...")
-            self._sitl = dronekit_sitl.start_default()
-            connection_string = self._sitl.connection_string()
-        elif not connection_string:
-            raise ValueError(
-                "A connection string is required when not using the simulator."
-            )
-
-        print("Connecting to vehicle on: %s", connection_string)
-        self._active_connection = connection_string
-        self._vehicle = connect(connection_string, wait_ready=self.wait_ready)
-        return self._vehicle
-
     def close(self) -> None:
         if self._vehicle:
             LOG.info("Closing vehicle connection.")
             self._vehicle.close()
             self._vehicle = None
         self._active_connection = None
-        if self._sitl:
-            LOG.info("Stopping SITL.")
-            self._sitl.stop()
-            self._sitl = None
 
     def status_lines(self) -> List[str]:
         vehicle = self.vehicle
@@ -83,7 +60,7 @@ class DroneController:
         attitude = vehicle.attitude
         mode_name = vehicle.mode.name if vehicle.mode else "unknown"
         system_state = getattr(vehicle.system_status, "state", "unknown")
-        lines = [
+        return [
             "=== Vehicle snapshot ===",
             f"Mode: {mode_name}",
             f"System status: {system_state}",
@@ -103,7 +80,6 @@ class DroneController:
                 getattr(battery, "level", "unknown"),
             ),
         ]
-        return lines
 
     def arm_and_takeoff(self, target_altitude: float) -> None:
         if target_altitude <= 0:
@@ -117,17 +93,12 @@ class DroneController:
         time.sleep(1.0)
         vehicle.simple_takeoff(target_altitude)
 
-        def reached_target() -> bool:
-            altitude = getattr(vehicle.location.global_relative_frame, "alt", None)
-            return altitude is not None and altitude >= target_altitude * 0.95
-
     def land(self) -> None:
         vehicle = self.vehicle
         vehicle.mode = VehicleMode("LAND")
         self._wait_for_mode("LAND", timeout=30.0)
 
     def set_altitude(self, target_altitude: float) -> None:
-        """Command the drone to a new altitude while airborne."""
         if target_altitude <= 0:
             raise ValueError("Altitude must be greater than 0 meters")
 
@@ -135,7 +106,7 @@ class DroneController:
         if not vehicle.armed:
             raise RuntimeError("Vehicle must be armed and airborne to change altitude")
 
-        if vehicle.mode.name.upper() != "GUIDED":  # pyright: ignore[reportOptionalMemberAccess]
+        if vehicle.mode.name.upper() != "GUIDED":
             vehicle.mode = VehicleMode("GUIDED")
             self._wait_for_mode("GUIDED", timeout=30.0)
 
@@ -143,45 +114,73 @@ class DroneController:
         target = LocationGlobalRelative(current.lat, current.lon, target_altitude)
         vehicle.simple_goto(target)
 
-    def move_north(self, distance_m: float) -> None:
-        """Move the drone north by distance_m meters, keeping current altitude."""
+    def move_forward(self, distance_m: float) -> None:
         if distance_m <= 0:
             raise ValueError("Distance must be greater than 0 meters")
-        self._move(distance_m / 111_320, 0.0)
+        yaw = self.vehicle.attitude.yaw  # radians; 0 = North, CW positive
+        lat_rad = math.radians(self.vehicle.location.global_relative_frame.lat)
+        d_lat = distance_m * math.cos(yaw) / 111_320
+        d_lon = distance_m * math.sin(yaw) / (111_320 * math.cos(lat_rad))
+        self._move(d_lat, d_lon)
 
-    def move_south(self, distance_m: float) -> None:
-        """Move the drone south by distance_m meters, keeping current altitude."""
+    def move_back(self, distance_m: float) -> None:
         if distance_m <= 0:
             raise ValueError("Distance must be greater than 0 meters")
-        self._move(-distance_m / 111_320, 0.0)
+        yaw = self.vehicle.attitude.yaw
+        lat_rad = math.radians(self.vehicle.location.global_relative_frame.lat)
+        d_lat = -distance_m * math.cos(yaw) / 111_320
+        d_lon = -distance_m * math.sin(yaw) / (111_320 * math.cos(lat_rad))
+        self._move(d_lat, d_lon)
 
-    def move_east(self, distance_m: float) -> None:
-        """Move the drone east by distance_m meters, keeping current altitude."""
-        if distance_m <= 0:
-            raise ValueError("Distance must be greater than 0 meters")
-        lat_rad = math.radians(self.vehicle.location.global_relative_frame.lat)  # pyright: ignore[reportArgumentType]
-        self._move(0.0, distance_m / (111_320 * math.cos(lat_rad)))
+    def rotate_left(self, degrees: float) -> None:
+        if degrees <= 0:
+            raise ValueError("Degrees must be greater than 0")
+        self._rotate(degrees, clockwise=False)
 
-    def move_west(self, distance_m: float) -> None:
-        """Move the drone west by distance_m meters, keeping current altitude."""
-        if distance_m <= 0:
-            raise ValueError("Distance must be greater than 0 meters")
-        lat_rad = math.radians(self.vehicle.location.global_relative_frame.lat)  # pyright: ignore[reportArgumentType]
-        self._move(0.0, -distance_m / (111_320 * math.cos(lat_rad)))
+    def rotate_right(self, degrees: float) -> None:
+        if degrees <= 0:
+            raise ValueError("Degrees must be greater than 0")
+        self._rotate(degrees, clockwise=True)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _rotate(self, degrees: float, clockwise: bool) -> None:
+        vehicle = self.vehicle
+        if not vehicle.armed:
+            raise RuntimeError("Vehicle must be armed and airborne to rotate")
+
+        if vehicle.mode.name.upper() != "GUIDED":
+            vehicle.mode = VehicleMode("GUIDED")
+            self._wait_for_mode("GUIDED", timeout=30.0)
+
+        direction = 1 if clockwise else -1
+        msg = vehicle.message_factory.command_long_encode(
+            0, 0,                                    # target system, component
+            mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+            0,                                       # confirmation
+            degrees,                                 # param1: angle in degrees
+            0,                                       # param2: angular speed (0 = default)
+            direction,                               # param3: 1 CW, -1 CCW
+            1,                                       # param4: 1 = relative offset
+            0, 0, 0,
+        )
+        vehicle.send_mavlink(msg)
 
     def _move(self, d_lat: float, d_lon: float) -> None:
         vehicle = self.vehicle
         if not vehicle.armed:
             raise RuntimeError("Vehicle must be armed and airborne to move")
 
-        if vehicle.mode.name.upper() != "GUIDED":  # pyright: ignore[reportOptionalMemberAccess]
+        if vehicle.mode.name.upper() != "GUIDED":
             vehicle.mode = VehicleMode("GUIDED")
             self._wait_for_mode("GUIDED", timeout=30.0)
 
         current = vehicle.location.global_relative_frame
         target = LocationGlobalRelative(
-            current.lat + d_lat,  # pyright: ignore[reportOperatorIssue]
-            current.lon + d_lon,  # pyright: ignore[reportOperatorIssue]
+            current.lat + d_lat,
+            current.lon + d_lon,
             current.alt,
         )
         vehicle.simple_goto(target)
@@ -255,22 +254,3 @@ class DroneController:
         if any(value is None for value in (vx, vy, vz)):
             return "unknown"
         return f"vx={vx:.2f}m/s, vy={vy:.2f}m/s, vz={vz:.2f}m/s"
-
-
-def main() -> int:
-    """Utility entry point to launch the simulator and keep it running."""
-    controller = DroneController()
-    print("Starting simulator (SITL)... press Ctrl+C to stop.")
-    try:
-        controller.connect()
-        while True:
-            time.sleep(1.0)
-    except KeyboardInterrupt:
-        print("\nStopping controller.")
-    finally:
-        controller.close()
-    return 0
-
-
-if __name__ == "__main__":  # pragma: no cover - utility entry point
-    raise SystemExit(main())

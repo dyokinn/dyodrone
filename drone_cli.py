@@ -9,18 +9,42 @@ import sys
 import time
 from typing import Any, Optional, Tuple
 
-from dronekit_version.dronekit_controller import DroneController
+from drone_controller import DroneController
+from dronekit_version.dronekit_sitl_controller import DronekitSITLController
+from dronekit_version.dronekit_pixhawk_controller import DronekitPixhawkController
+from dyopilot_version.dyopilot import PyMAVLinkController
 
 # Silence autopilot logger that spams the curses console with status lines.
 logging.getLogger("autopilot").disabled = True
+
+# Default connection strings used when --connect is omitted.
+_DEFAULT_CONNECT: dict[str, str] = {
+    "pixhawk": "tcp:127.0.0.1:5760",
+    "mavlink": "tcp:127.0.0.1:5760",
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Start the DroneKit SITL simulator, show vehicle telemetry, and accept "
-            "basic flight commands from the terminal."
+            "Interactive drone control CLI. Supports multiple backends: "
+            "SITL simulation, Pixhawk hardware, and PyMAVLink."
         )
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["sitl", "pixhawk", "mavlink"],
+        default="sitl",
+        help="Backend to use: sitl (default), pixhawk, or mavlink.",
+    )
+    parser.add_argument(
+        "--connect",
+        type=str,
+        default=None,
+        help=(
+            "Vehicle connection string (e.g. /dev/ttyUSB0, tcp:192.168.1.1:5760). "
+            "Defaults to tcp:127.0.0.1:5760 for pixhawk and mavlink when omitted."
+        ),
     )
     parser.add_argument(
         "--interval",
@@ -35,20 +59,38 @@ def parse_args() -> argparse.Namespace:
         help="Optional time limit in seconds. Runs until quit when omitted.",
     )
     parser.add_argument(
-        "--connect",
-        type=str,
-        default=None,
+        "--gcs-port",
+        type=int,
+        default=14550,
+        metavar="PORT",
         help=(
-            "Vehicle connection string. When omitted the CLI starts a simulator and "
-            "connects to it."
+            "UDP port for the QGroundControl proxy (default: 14550). "
+            "Set to 0 to disable. Only applies to --backend sitl."
         ),
     )
     parser.add_argument(
-        "--no-sim",
-        action="store_true",
-        help="Disable the built-in simulator and use the provided --connect string.",
+        "--gcs-host",
+        type=str,
+        default="127.0.0.1",
+        metavar="HOST",
+        help=(
+            "IP address of the machine running QGroundControl (default: 127.0.0.1). "
+            "Use 255.255.255.255 to broadcast to the whole LAN. "
+            "Only applies to --backend sitl."
+        ),
     )
     return parser.parse_args()
+
+
+def build_controller(args: argparse.Namespace) -> DroneController:
+    if args.backend == "sitl":
+        gcs_port = args.gcs_port if args.gcs_port else None
+        return DronekitSITLController(gcs_port=gcs_port, gcs_host=args.gcs_host)
+    if args.backend == "pixhawk":
+        return DronekitPixhawkController(connection=args.connect)
+    if args.backend == "mavlink":
+        return PyMAVLinkController()
+    raise ValueError(f"Unknown backend: {args.backend!r}")
 
 
 def safe_addstr(stdscr: Any, y: int, x: int, text: str) -> None:
@@ -71,7 +113,12 @@ def render_screen(
     for idx, line in enumerate(lines):
         safe_addstr(stdscr, idx, 0, line[:max_width])
 
-    base_row = len(lines) + 1
+    conn_lines = controller.connection_details()
+    conn_start = len(lines) + 1
+    for i, line in enumerate(conn_lines):
+        safe_addstr(stdscr, conn_start + i, 0, line[:max_width])
+
+    base_row = conn_start + len(conn_lines) + 1
     safe_addstr(
         stdscr,
         base_row,
@@ -82,7 +129,7 @@ def render_screen(
         stdscr,
         base_row + 2,
         0,
-        "Commands: takeoff <alt>, altitude <alt>, north/south/east/west <m>, land, quit"[
+        "Commands: takeoff <alt>, altitude <alt>, forward/back <m>, left/right <deg>, land, quit"[
             :max_width
         ],
     )
@@ -135,7 +182,7 @@ def handle_command(command: str, controller: DroneController) -> Tuple[bool, str
             return False, f"Altitude change failed: {exc}"
         return False, f"Altitude set to {altitude:.1f} m"
 
-    if action in {"north", "south", "east", "west"}:
+    if action in {"forward", "back"}:
         if len(parts) != 2:
             return False, f"Usage: {action} <meters>"
         try:
@@ -145,8 +192,21 @@ def handle_command(command: str, controller: DroneController) -> Tuple[bool, str
         try:
             getattr(controller, f"move_{action}")(distance)
         except Exception as exc:  # noqa: BLE001
-            return False, f"Move {action} failed: {exc}"
+            return False, f"{action.capitalize()} failed: {exc}"
         return False, f"Moving {action} {distance:.1f} m"
+
+    if action in {"left", "right"}:
+        if len(parts) != 2:
+            return False, f"Usage: {action} <degrees>"
+        try:
+            degrees = float(parts[1])
+        except ValueError:
+            return False, "Degrees must be numeric"
+        try:
+            getattr(controller, f"rotate_{action}")(degrees)
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Rotate {action} failed: {exc}"
+        return False, f"Rotating {action} {degrees:.1f}°"
 
     if action in {"quit", "exit"}:
         return True, "Exiting CLI"
@@ -222,10 +282,6 @@ def run_cli(
     duration: Optional[float],
     controller: DroneController,
 ) -> int:
-    if controller.use_simulator:
-        print("Starting simulator (SITL)...")
-
-    connection_desc: Optional[str] = None
     try:
         controller.connect()
         connection_desc = controller.active_connection
@@ -237,28 +293,20 @@ def run_cli(
         print("\nInterrupted by user.")
     finally:
         controller.close()
-        if controller.use_simulator:
-            print("SITL stopped. Goodbye!")
-        else:
-            print("Connection closed. Goodbye!")
+        print("Connection closed. Goodbye!")
 
     return 0
 
 
 def main() -> int:
     args = parse_args()
-    use_simulator = not args.no_sim
-    if not use_simulator and not args.connect:
-        print("--connect is required when --no-sim is provided.", file=sys.stderr)
-        return 1
 
-    controller = DroneController(
-        connection=args.connect,
-        use_simulator=use_simulator,
-    )
-    return run_cli(
-        interval=args.interval, duration=args.duration, controller=controller
-    )
+    if not args.connect and args.backend in _DEFAULT_CONNECT:
+        args.connect = _DEFAULT_CONNECT[args.backend]
+
+    print(f"Starting {args.backend} backend...")
+    controller = build_controller(args)
+    return run_cli(interval=args.interval, duration=args.duration, controller=controller)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
