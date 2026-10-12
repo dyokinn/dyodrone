@@ -18,6 +18,7 @@ from dyodrone.core.factory import (
     BackendUnavailable,
     create_controller,
     default_driver,
+    default_gcs_port,
 )
 from dyodrone.core.targets import TARGETS
 
@@ -98,9 +99,7 @@ def build_controller(args: argparse.Namespace) -> DroneController:
     Thin wrapper over :func:`dyodrone.core.factory.create_controller` that
     applies the proxy default and turns an unusable driver into a clean exit.
     """
-    gcs_port = args.gcs_port
-    if gcs_port is None:
-        gcs_port = DEFAULT_GCS_PORT if args.target == "sitl" else 0
+    gcs_port = default_gcs_port(args.target, args.gcs_port)
     try:
         return create_controller(args.driver, args.target, args.connect, gcs_port, args.gcs_host)
     except BackendUnavailable as exc:

@@ -29,6 +29,13 @@ class BackendUnavailable(RuntimeError):
     """The selected driver cannot run in this Python interpreter."""
 
 
+def default_gcs_port(target: str, given: Optional[int] = None) -> int:
+    """QGroundControl proxy port to use: *given* if set, else on for ``sitl`` and off otherwise."""
+    if given is not None:
+        return given
+    return DEFAULT_GCS_PORT if target == "sitl" else 0
+
+
 def default_driver() -> str:
     """The driver that can run on this interpreter (``dronekit`` only on < 3.10)."""
     return "dronekit" if sys.version_info < (3, 10) else "dyopilot"

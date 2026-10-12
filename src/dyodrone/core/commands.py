@@ -19,6 +19,16 @@ COMMAND_HELP: List[str] = [
 ]
 
 
+#: Substrings that mark a :func:`handle_command` message as an error (lowercase).
+ERROR_MARKERS = ("failed", "usage:", "unknown command", "must be", "not connected")
+
+
+def is_error_message(message: str) -> bool:
+    """True if a message returned by :func:`handle_command` reports a failure."""
+    lowered = message.lower()
+    return any(marker in lowered for marker in ERROR_MARKERS)
+
+
 def handle_command(command: str, controller: DroneController) -> Tuple[bool, str]:
     """Run one console command line against *controller*.
 
