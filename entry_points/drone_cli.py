@@ -7,24 +7,34 @@ import curses
 import logging
 import sys
 import time
+from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from drone_controller import DroneController
-from dronekit_version.dronekit_sitl_controller import DronekitSITLController
-from dronekit_version.dronekit_pixhawk_controller import DronekitPixhawkController
-from dyopilot_version.dyopilot import PyMAVLinkController
+# This script lives in entry_points/, so sys.path[0] is that folder, not the
+# repo root where drone_controller, dronekit_version and dyopilot_version live.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from drone_controller import DroneController  # noqa: E402
 
 # Silence autopilot logger that spams the curses console with status lines.
 logging.getLogger("autopilot").disabled = True
 
+# Backends whose controllers import DroneKit, which is incompatible with
+# Python 3.10+ (see build_controller() below). These must be run under the
+# Python 3.7 interpreter described in dronekit_version/requirements-3.7.17.txt.
+_DRONEKIT_BACKENDS = {"dronekit-sitl", "dronekit-pixhawk"}
+
 # Default connection strings used when --connect is omitted.
+# The two "-sitl" backends self-provision a connection string when they
+# launch their own SITL instance, so they have no default here.
 _DEFAULT_CONNECT: dict[str, str] = {
-    "pixhawk": "tcp:127.0.0.1:5760",
-    "mavlink": "tcp:127.0.0.1:5760",
+    "dronekit-pixhawk": "tcp:127.0.0.1:5760",
+    "dyopilot-pixhawk": "tcp:127.0.0.1:5760",
 }
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments (backend, connection, refresh and GCS options)."""
     parser = argparse.ArgumentParser(
         description=(
             "Interactive drone control CLI. Supports multiple backends: "
@@ -33,9 +43,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=["sitl", "pixhawk", "mavlink"],
-        default="sitl",
-        help="Backend to use: sitl (default), pixhawk, or mavlink.",
+        choices=["dronekit-sitl", "dronekit-pixhawk", "dyopilot-sitl", "dyopilot-pixhawk"],
+        default="dronekit-sitl",
+        help=(
+            "Backend to use: dronekit-sitl (default), dronekit-pixhawk, "
+            "dyopilot-sitl, or dyopilot-pixhawk. The dronekit-* backends require "
+            "Python 3.7; the dyopilot-* backends run on a current Python (see "
+            "docs/guide/how.rst)."
+        ),
     )
     parser.add_argument(
         "--connect",
@@ -43,7 +58,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Vehicle connection string (e.g. /dev/ttyUSB0, tcp:192.168.1.1:5760). "
-            "Defaults to tcp:127.0.0.1:5760 for pixhawk and mavlink when omitted."
+            "Defaults to tcp:127.0.0.1:5760 for dronekit-pixhawk and "
+            "dyopilot-pixhawk when omitted."
         ),
     )
     parser.add_argument(
@@ -65,7 +81,7 @@ def parse_args() -> argparse.Namespace:
         metavar="PORT",
         help=(
             "UDP port for the QGroundControl proxy (default: 14550). "
-            "Set to 0 to disable. Only applies to --backend sitl."
+            "Set to 0 to disable. Applies to --backend dronekit-sitl and dyopilot-sitl."
         ),
     )
     parser.add_argument(
@@ -76,20 +92,62 @@ def parse_args() -> argparse.Namespace:
         help=(
             "IP address of the machine running QGroundControl (default: 127.0.0.1). "
             "Use 255.255.255.255 to broadcast to the whole LAN. "
-            "Only applies to --backend sitl."
+            "Applies to --backend dronekit-sitl and dyopilot-sitl."
         ),
     )
     return parser.parse_args()
 
 
+def _require_python37(backend: str) -> None:
+    """Fail fast with an actionable message instead of a raw AttributeError.
+
+    DroneKit (`dronekit==2.9.2`) has `class Parameters(collections.MutableMapping, ...)`,
+    and `collections.MutableMapping` was removed in Python 3.10. Importing
+    `dronekit` on 3.10+ crashes immediately, so dronekit-* backends must run
+    under the Python 3.7 interpreter described in
+    dronekit_version/requirements-3.7.17.txt.
+    """
+    if sys.version_info >= (3, 10):
+        raise SystemExit(
+            f"Backend '{backend}' requires Python 3.7 — DroneKit is incompatible "
+            "with Python 3.10+. Run this CLI with a 3.7 interpreter "
+            "(see docs/guide/how.rst)."
+        )
+
+
 def build_controller(args: argparse.Namespace) -> DroneController:
-    if args.backend == "sitl":
+    """Instantiate the controller selected by ``args.backend``.
+
+    Backend modules are imported lazily inside each branch so that choosing a
+    ``dyopilot-*`` backend never imports DroneKit (see :doc:`/guide/how`).
+    """
+    if args.backend in _DRONEKIT_BACKENDS:
+        _require_python37(args.backend)
+        try:
+            if args.backend == "dronekit-sitl":
+                from dronekit_version.dronekit_sitl_controller import DronekitSITLController
+
+                gcs_port = args.gcs_port if args.gcs_port else None
+                return DronekitSITLController(gcs_port=gcs_port, gcs_host=args.gcs_host)
+            from dronekit_version.dronekit_pixhawk_controller import DronekitPixhawkController
+
+            return DronekitPixhawkController(connection=args.connect)
+        except AttributeError as exc:
+            raise RuntimeError(
+                f"Backend '{args.backend}' requires Python 3.7 — DroneKit is "
+                "incompatible with Python 3.10+. Run this CLI with a 3.7 "
+                "interpreter (see docs/guide/how.rst)."
+            ) from exc
+
+    if args.backend == "dyopilot-sitl":
+        from dyopilot_version.dyopilot_sitl_controller import DyopilotSITLController
+
         gcs_port = args.gcs_port if args.gcs_port else None
-        return DronekitSITLController(gcs_port=gcs_port, gcs_host=args.gcs_host)
-    if args.backend == "pixhawk":
-        return DronekitPixhawkController(connection=args.connect)
-    if args.backend == "mavlink":
-        return PyMAVLinkController()
+        return DyopilotSITLController(gcs_port=gcs_port, gcs_host=args.gcs_host)
+    if args.backend == "dyopilot-pixhawk":
+        from dyopilot_version.dyopilot_pixhawk_controller import DyopilotPixhawkController
+
+        return DyopilotPixhawkController(connection=args.connect)
     raise ValueError(f"Unknown backend: {args.backend!r}")
 
 
@@ -143,6 +201,11 @@ def render_screen(
 
 
 def handle_command(command: str, controller: DroneController) -> Tuple[bool, str]:
+    """Run one CLI command line against *controller*.
+
+    Returns ``(exit_requested, status_message)``; the message is shown on the
+    "Last command" line of the curses screen.
+    """
     if not command:
         return False, "Awaiting command..."
 
@@ -282,6 +345,7 @@ def run_cli(
     duration: Optional[float],
     controller: DroneController,
 ) -> int:
+    """Connect *controller*, run the curses console, and always close it on exit."""
     try:
         controller.connect()
         connection_desc = controller.active_connection
@@ -299,6 +363,7 @@ def run_cli(
 
 
 def main() -> int:
+    """CLI entry point: parse arguments, build the backend, run the console."""
     args = parse_args()
 
     if not args.connect and args.backend in _DEFAULT_CONNECT:

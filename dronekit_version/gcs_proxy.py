@@ -88,6 +88,19 @@ class GCSProxy:
         vehicle.add_message_listener("*", _forward)
         LOG.info("GCS proxy active: → %s:%d", self._gcs_host, self._gcs_port)
 
+    def forward(self, raw_bytes: bytes) -> None:
+        """Send one raw MAVLink frame to the GCS.
+
+        Usable by any backend that has its own way of receiving frames
+        (e.g. a pymavlink reader thread), not just DroneKit's listener.
+        """
+        if not raw_bytes:
+            return
+        try:
+            self._gcs_sock.sendto(bytes(raw_bytes), (self._gcs_host, self._gcs_port))
+        except OSError:
+            pass
+
     def stop(self) -> None:
         """Remove the listener and close the UDP socket."""
         if self._vehicle is not None and self._listener is not None:

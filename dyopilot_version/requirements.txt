@@ -1,0 +1,9 @@
+# Python 3.12+. dronekit-sitl declares "dronekit" as a dependency in its own
+# package metadata, but never imports it at runtime (only its unused
+# forwarder.py submodule does) — pip will install it alongside, it is simply
+# unused dead weight in this venv. dronekit itself is NOT usable on Python
+# 3.10+ (see dronekit_version/requirements-3.7.17.txt); that only matters for
+# the dronekit-sitl/dronekit-pixhawk backends, not for these. See docs/guide/how.rst.
+dronekit-sitl==3.3.0
+pymavlink==2.4.49
+pyserial==3.5
