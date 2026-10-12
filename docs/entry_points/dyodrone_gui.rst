@@ -1,7 +1,7 @@
-drone_gui.py
+dyodrone-gui
 ============
 
-A browser-based console for the same vehicle commands as :doc:`drone_cli`. It
+A browser-based console for the same vehicle commands as :doc:`dyodrone_cli`. It
 shows live vehicle info, takes commands at a prompt, and lets you switch
 between the simulator and a real Pixhawk and connect or disconnect — without a
 terminal UI. It uses only the standard library, so it runs on both the Python
@@ -9,8 +9,7 @@ terminal UI. It uses only the standard library, so it runs on both the Python
 
 .. code-block:: bash
 
-   python entry_points/drone_gui.py [--host HOST] [--port PORT]
-                                    [--family {dronekit,dyopilot}] [--no-browser]
+   dyodrone-gui [--host HOST] [--port PORT] [--driver {dronekit,dyopilot}] [--no-browser]
 
 The script prints a URL such as ``http://127.0.0.1:8765/?token=…`` and opens it
 in your browser. Press ``Ctrl+C`` (or send ``SIGTERM``) to stop it; the vehicle
@@ -33,7 +32,7 @@ Arguments
    * - ``--port``
      - ``8765``
      - Port to serve on; ``0`` picks any free port.
-   * - ``--family``
+   * - ``--driver``
      - by interpreter
      - ``dronekit`` or ``dyopilot``. Defaults to ``dronekit`` on Python < 3.10
        and ``dyopilot`` otherwise.
@@ -41,14 +40,14 @@ Arguments
      - off
      - Print the URL instead of opening a browser.
 
-Which backend family you get
+Which driver you get
 ----------------------------
 
 Like the CLI, one process runs on one interpreter, and DroneKit and dyopilot
-need different ones. The header badge shows the active family and Python
-version (for example ``dyopilot · Python 3.12.14``). To use the other family,
+need different ones. The header badge shows the active driver and Python
+version (for example ``dyopilot · Python 3.12.14``). To use the other driver,
 start the GUI from the other environment — see :doc:`../guide/installation`.
-Choosing ``--family dronekit`` on Python 3.10+ is allowed but the connection
+Choosing ``--driver dronekit`` on Python 3.10+ is allowed but the connection
 fails with the usual "requires Python 3.7" message in the console.
 
 The page
@@ -81,10 +80,10 @@ Connection toggle
      - Connects to
      - Extra field
    * - **Simulator**
-     - ``<family>-sitl``: starts the built-in ArduCopter 3.3 simulator
+     - ``--target sitl``: starts the built-in ArduCopter 3.3 simulator
      - *QGC UDP port* (default 14550; ``0`` disables the proxy)
    * - **Pixhawk**
-     - ``<family>-pixhawk``: the board at the connection string
+     - ``--target pixhawk``: the board at the connection string
      - *Connection*, e.g. ``tcp:127.0.0.1:5760`` or ``/dev/ttyUSB0``
 
 The toggle and fields lock while connecting or connected; press **Disconnect**
@@ -142,10 +141,10 @@ header.
    * - Request
      - Effect
    * - ``GET /api/state?since=N``
-     - Status, mode, telemetry lines, connection details and log entries with
+     - Status, driver, target, telemetry lines, connection details and log entries with
        id greater than ``N``.
    * - ``POST /api/connect``
-     - ``{"mode": "sitl"|"pixhawk", "connection": "…", "gcs_port": 14550}``.
+     - ``{"target": "sitl"|"pixhawk", "connection": "…", "gcs_port": 14550}``.
        Returns at once; poll the state. ``409`` if already connecting or
        connected.
    * - ``POST /api/disconnect``
@@ -153,5 +152,5 @@ header.
    * - ``POST /api/command``
      - ``{"line": "takeoff 10"}``. Queued; results appear in the log.
 
-Code lives in ``drone_gui/`` (:doc:`../api/gui`); the command and backend logic
-is shared with the CLI in ``drone_console.py`` (:doc:`../api/console`).
+Code lives in ``dyodrone.gui`` (:doc:`../api/gui`); the command and driver logic
+is shared with the CLI in ``dyodrone.core`` (:doc:`../api/core`).

@@ -6,22 +6,23 @@ Starting the CLI
 
 .. code-block:: bash
 
-   python entry_points/drone_cli.py                                        # dronekit-sitl + QGC proxy on 127.0.0.1:14550 (Python 3.7)
-   python entry_points/drone_cli.py --gcs-port 0                          # dronekit-sitl, proxy disabled
-   python entry_points/drone_cli.py --backend dronekit-pixhawk            # Pixhawk via tcp:127.0.0.1:5760 (Python 3.7)
-   python entry_points/drone_cli.py --backend dronekit-pixhawk --connect /dev/ttyUSB0
-   python entry_points/drone_cli.py --backend dyopilot-sitl               # pymavlink + built-in SITL (Python 3.12+)
-   python entry_points/drone_cli.py --backend dyopilot-pixhawk --connect /dev/ttyUSB0  # pymavlink + Pixhawk (Python 3.12+)
-   python entry_points/drone_cli.py --interval 1.0                        # refresh telemetry every 1 s
+   dyodrone-cli                                          # default driver for this Python, simulator, QGC proxy on 127.0.0.1:14550
+   dyodrone-cli --gcs-port 0                             # simulator, proxy disabled
+   dyodrone-cli --target pixhawk                         # Pixhawk via tcp:127.0.0.1:5760
+   dyodrone-cli --target pixhawk --connect /dev/ttyUSB0
+   dyodrone-cli --driver dyopilot --target sitl          # pymavlink + built-in simulator (Python 3.12+)
+   dyodrone-cli --driver dronekit --target pixhawk       # DroneKit + Pixhawk (Python 3.7)
+   dyodrone-cli --interval 1.0                           # refresh telemetry every 1 s
+   python -m dyodrone                                    # same as dyodrone-cli
 
-Prefer a browser? ``python entry_points/drone_gui.py`` offers the same commands with a connection toggle — see :doc:`../entry_points/drone_gui`.
+Prefer a browser? ``dyodrone-gui`` offers the same commands with a connection toggle — see :doc:`../entry_points/dyodrone_gui`.
 
-``dronekit-*`` backends must be run under the Python 3.7 interpreter described below; ``dyopilot-*`` backends run on the Python 3.12 interpreter. Each backend is a fully self-contained process — no backend talks to another interpreter.
+You pick a **driver** (the flight-control library) and a **target** (what it connects to); see :ref:`drivers-and-targets`. ``--driver dronekit`` must be run under the Python 3.7 interpreter and ``--driver dyopilot`` on Python 3.12; each process is fully self-contained — nothing talks to another interpreter. Without ``--driver`` the CLI picks the one that can run on the current Python.
 
 On launch the CLI:
 
-1. Applies per-backend connection defaults when ``--connect`` is omitted.
-2. Instantiates the selected backend controller.
+1. Resolves defaults: the Pixhawk connection string, and the QGC proxy port (on for the simulator, off for Pixhawk).
+2. Builds the controller for the chosen driver and target.
 3. Calls ``controller.connect()`` — blocks until the vehicle (or SITL) is ready.
 4. Prints the connection string, then enters the curses screen.
 
@@ -124,63 +125,60 @@ Rotates the drone in place relative to its current heading using ``MAV_CMD_CONDI
 
 Closes the curses UI cleanly. The ``finally`` block calls ``controller.close()``, which:
 
-- Removes the GCS proxy listener and closes the UDP socket (SITL only).
-- Closes the DroneKit vehicle connection.
-- Stops the SITL process (SITL only).
+- Stops the GCS proxy and closes its UDP socket (when one is running).
+- Closes the vehicle connection.
+- Stops the simulator process (``--target sitl`` only).
 
-Backend selection
------------------
+.. _drivers-and-targets:
 
-==================== ============================================================================= ====================== ======
-``--backend``        Connects to                                                                   ``--connect`` default  Python
-==================== ============================================================================= ====================== ======
-``dronekit-sitl``    dronekit-sitl subprocess (ArduCopter 3.3), driven via DroneKit's ``Vehicle``  assigned by SITL       3.7
-``dronekit-pixhawk`` Physical Pixhawk over serial or TCP/UDP, driven via DroneKit's ``Vehicle``    ``tcp:127.0.0.1:5760`` 3.7
-``dyopilot-sitl``    Same ArduCopter 3.3 SITL subprocess, driven via raw pymavlink/``mavutil``     assigned by SITL       3.12+
-``dyopilot-pixhawk`` Physical Pixhawk over serial or TCP/UDP, driven via raw pymavlink/``mavutil`` ``tcp:127.0.0.1:5760`` 3.12+
-==================== ============================================================================= ====================== ======
+Drivers and targets
+-------------------
 
-All backends expose the same CLI commands.
+Two independent choices:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 30 56
+
+   * - Choice
+     - Values
+     - Meaning
+   * - ``--driver``
+     - ``dronekit``
+     - Flight logic on DroneKit's ``Vehicle`` API. **Python 3.7 only.**
+   * -
+     - ``dyopilot``
+     - Flight logic on raw pymavlink/``mavutil``. Python 3.12+ (also runs on 3.7).
+   * - ``--target``
+     - ``sitl``
+     - Starts the bundled ArduCopter 3.3 simulator and connects to it.
+   * -
+     - ``pixhawk``
+     - Connects to ``--connect`` (default ``tcp:127.0.0.1:5760``): a board on serial,
+       a TCP/UDP endpoint, or an already-running simulator.
+
+Any driver works with any target, so there are four combinations, all with the same
+commands. The driver decides which Python environment you need; the target only decides where the
+connection string comes from.
 
 Two-interpreter setup
 ---------------------
 
-The ``dronekit-*`` and ``dyopilot-*`` backends need two **separate virtual environments**, because they need two different Python versions — there is no single interpreter both can run under. Each backend is a fully self-contained process; nothing crosses between the two venvs at runtime.
+``--driver dronekit`` and ``--driver dyopilot`` need two **separate virtual environments**, because they need two different Python versions — there is no single interpreter DroneKit and a current pymavlink can both run under. Each process is self-contained; nothing crosses between the two environments at runtime.
 
-.. _python-37-venv--dronekit-sitl--dronekit-pixhawk:
+.. list-table::
+   :header-rows: 1
 
-Python 3.7 venv — ``dronekit-sitl`` / ``dronekit-pixhawk``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   * - Environment
+     - Python
+     - Install
+   * - DroneKit
+     - 3.7
+     - ``pip install -e ".[dronekit]"``
+   * - dyopilot
+     - 3.12+
+     - ``pip install -e ".[dyopilot]"``
 
-Requires **Python 3.7** due to DroneKit compatibility (``dronekit==2.9.2`` uses ``collections.MutableMapping``, removed in Python 3.10). Defined in ``dronekit_version/requirements-3.7.17.txt``.
+``dronekit==2.9.2`` uses ``collections.MutableMapping``, removed in Python 3.10, so the DroneKit environment must be 3.7. The dyopilot environment never imports DroneKit. ``dronekit-sitl`` declares ``dronekit`` as a dependency, so ``pip`` installs it there too; it is never imported and is harmless dead weight (don't ``import dronekit`` yourself in that environment). Package lists and pins are in :doc:`../project/dependencies`; step-by-step setup is in :doc:`installation`.
 
-============================================ ======= ===============================================
-Package                                      Version Purpose
-============================================ ======= ===============================================
-dronekit                                     2.9.2   High-level vehicle API
-dronekit-sitl                                3.3.0   Bundles and launches ArduPilot SITL
-pymavlink                                    2.4.8   Raw MAVLink message construction (yaw rotation)
-pyserial                                     3.5     Serial port access for Pixhawk USB connections
-Cython, future, lxml, monotonic, psutil, six various DroneKit transitive dependencies
-============================================ ======= ===============================================
-
-.. _python-312-venv--dyopilot-sitl--dyopilot-pixhawk:
-
-Python 3.12+ venv — ``dyopilot-sitl`` / ``dyopilot-pixhawk``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Defined in ``dyopilot_version/requirements.txt``. No DroneKit anywhere in the import path.
-
-+---------------+---------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| Package       | Version | Purpose                                                                                                                                                                                   |
-+===============+=========+===========================================================================================================================================================================================+
-| dronekit-sitl | 3.3.0   | Bundles and launches ArduPilot SITL (same package as above — but its own runtime code never imports ``dronekit``, only its unused ``forwarder.py`` submodule does, so it works fine here) |
-+---------------+---------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| pymavlink     | 2.4.49  | All MAVLink message construction and parsing                                                                                                                                              |
-+---------------+---------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| pyserial      | 3.5     | Serial port access for Pixhawk USB connections                                                                                                                                            |
-+---------------+---------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-
-``pip install``\ ing this file will also pull in ``dronekit==2.9.2`` as a transitive dependency declared by ``dronekit-sitl``'s own package metadata — you'll see it in ``pip list``. It is never imported anywhere in ``dyopilot_version/`` and is harmless dead weight; don't be alarmed by it, and don't try to ``import dronekit`` yourself in this venv (it will fail on 3.10+, same as everywhere else).
-
-Choosing the wrong interpreter for a backend fails fast: running a ``dronekit-*`` backend under Python 3.10+ prints an actionable error instead of a raw traceback (see ``create_controller()`` in ``drone_console.py``).
+Choosing the wrong interpreter fails fast: ``--driver dronekit`` under Python 3.10+ prints an actionable error instead of a raw traceback (see ``create_controller()`` in ``dyodrone.core.factory``).

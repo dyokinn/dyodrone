@@ -1,13 +1,14 @@
 Dependencies
 ============
 
-Each backend family has its own requirements file and its own virtual
-environment. Nothing is shared at runtime.
+Dependencies are declared in ``pyproject.toml`` as **extras** — one per
+environment — and each environment is its own virtual environment. Nothing is
+shared at runtime. The core package itself has no dependencies.
 
 DroneKit environment — Python 3.7
 ---------------------------------
 
-``dronekit_version/requirements-3.7.17.txt``
+``pip install -e ".[dronekit]"``
 
 .. list-table::
    :header-rows: 1
@@ -18,7 +19,7 @@ DroneKit environment — Python 3.7
      - Why it is there
    * - ``dronekit``
      - 2.9.2
-     - High-level ``Vehicle`` API used by ``_DroneKitBase``. Unmaintained and
+     - High-level ``Vehicle`` API used by ``DroneKitController``. Unmaintained and
        only importable on Python ≤ 3.9.
    * - ``dronekit-sitl``
      - 3.3.0
@@ -29,14 +30,14 @@ DroneKit environment — Python 3.7
    * - ``pyserial``
      - 3.5
      - Serial access for Pixhawk over USB.
-   * - ``Cython``, ``future``, ``lxml``, ``monotonic``, ``psutil``, ``six``
+   * - ``future``, ``monotonic``, ``psutil``, ``six``
      - various
-     - Transitive dependencies of DroneKit / dronekit-sitl.
+     - Needed by DroneKit / dronekit-sitl (``import dronekit`` fails without ``future``).
 
 dyopilot environment — Python 3.12+
 -----------------------------------
 
-``dyopilot_version/requirements.txt``
+``pip install -e ".[dyopilot]"``
 
 .. list-table::
    :header-rows: 1
@@ -65,7 +66,7 @@ here is expected.
 Documentation environment — Python 3.12+
 ----------------------------------------
 
-``docs/requirements.txt``
+``pip install -e ".[docs]"``
 
 .. list-table::
    :header-rows: 1
@@ -82,17 +83,30 @@ Documentation environment — Python 3.12+
      - HTML theme.
    * - ``pymavlink``
      - 2.4.49
-     - Real (not mocked) because ``dyopilot_version`` evaluates ``mavutil``
+     - Real (not mocked) because the dyopilot driver evaluates ``mavutil``
        constants when imported.
 
 DroneKit and ``dronekit_sitl`` are mocked by ``docs/conf.py``
 (``autodoc_mock_imports``), so the Python 3.7 stack is not needed to build the
 docs.
 
+Test environment
+----------------
+
+``pip install -e ".[dyopilot,test]"`` (or ``".[dronekit,test]"``). ``test`` adds
+``pytest`` (>=7.4,<9; 7.4 is the last line that supports Python 3.7). The
+``docs`` build test also needs the ``docs`` extra.
+
+Build backend
+-------------
+
+``setuptools>=64,<69``: 68 is the last release that builds on Python 3.7, and
+64 is the first with editable installs for ``pyproject.toml`` projects.
+
 Web console
 -----------
 
-``drone_gui/`` and ``entry_points/drone_gui.py`` use only the Python standard
+``dyodrone.gui`` uses only the Python standard
 library (``http.server``, ``threading``, ``json``); the page is one HTML file
 with inline CSS and JavaScript and loads nothing from the network.
 

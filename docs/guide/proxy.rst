@@ -1,16 +1,16 @@
 QGroundControl Proxy
 ====================
 
-Both SITL backends (``dronekit-sitl`` and ``dyopilot-sitl``) include a built-in UDP proxy that forwards live MAVLink telemetry to QGroundControl. No MAVProxy, no extra processes, no manual QGC configuration.
+Both drivers include a built-in UDP proxy (on by default for ``--target sitl``, opt-in with ``--gcs-port`` for ``pixhawk``) that forwards live MAVLink telemetry to QGroundControl. No MAVProxy, no extra processes, no manual QGC configuration.
 
 How it works
 ------------
 
-When the proxy is active, the active backend intercepts every MAVLink frame it receives from SITL and forwards the raw bytes to QGC over UDP. The reader differs per backend, but both feed the same ``GCSProxy.forward(raw_bytes)``:
+When the proxy is active, the active driver intercepts every MAVLink frame it receives from the vehicle and forwards the raw bytes to QGC over UDP. The reader differs per driver, but both feed the same ``GCSProxy.forward(raw_bytes)``:
 
 ::
 
-   SITL ──TCP──► backend's message reader
+   SITL ──TCP──► driver's message reader
                        │  (DroneKit: vehicle.on_message('*') / dyopilot: MAVLinkReader)
                        ▼
                   GCSProxy.forward()
@@ -18,7 +18,7 @@ When the proxy is active, the active backend intercepts every MAVLink frame it r
                        ▼
                   QGroundControl
 
-``dronekit-sitl`` attaches a ``'*'`` wildcard listener to the DroneKit vehicle object; ``dyopilot-sitl`` passes ``GCSProxy.forward`` as the ``on_frame`` callback to its own ``MAVLinkReader`` background thread. Either way, every received frame — ``HEARTBEAT``, ``GLOBAL_POSITION_INT``, ``SYS_STATUS``, ``VFR_HUD``, everything QGC needs — has its original bytes (``get_msgbuf()``) sent unmodified, so QGC sees exactly what SITL sent.
+``--driver dronekit`` attaches a ``'*'`` wildcard listener to the DroneKit vehicle object; ``--driver dyopilot`` passes ``GCSProxy.forward`` as the ``on_frame`` callback to its own ``MAVLinkReader`` background thread. Either way, every received frame — ``HEARTBEAT``, ``GLOBAL_POSITION_INT``, ``SYS_STATUS``, ``VFR_HUD``, everything QGC needs — has its original bytes (``get_msgbuf()``) sent unmodified, so QGC sees exactly what SITL sent.
 
 Starting with the proxy
 -----------------------
@@ -26,19 +26,19 @@ Starting with the proxy
 .. code-block:: bash
 
    # Default — proxy on 127.0.0.1:14550 (QGC on same machine)
-   python entry_points/drone_cli.py
+   dyodrone-cli
 
    # Custom port
-   python entry_points/drone_cli.py --gcs-port 5600
+   dyodrone-cli --gcs-port 5600
 
    # QGC on another machine
-   python entry_points/drone_cli.py --gcs-host 192.168.1.50
+   dyodrone-cli --gcs-host 192.168.1.50
 
    # Broadcast to entire LAN
-   python entry_points/drone_cli.py --gcs-host 255.255.255.255
+   dyodrone-cli --gcs-host 255.255.255.255
 
    # Disable proxy
-   python entry_points/drone_cli.py --gcs-port 0
+   dyodrone-cli --gcs-port 0
 
 The CLI screen shows the proxy target while it is active:
 
@@ -87,7 +87,7 @@ Limitations
 ============ =======================================================================================================================================================================================
 Direction    SITL → QGC only (telemetry / observation)
 QGC commands Not forwarded back to SITL. Use the CLI to control the vehicle.
-Why          The active backend (DroneKit or dyopilot) is the primary flight controller. Routing QGC MAVLink commands back to SITL alongside the CLI's own commands would create conflicting inputs.
+Why          The active driver (DroneKit or dyopilot) is the primary flight controller. Routing QGC MAVLink commands back to SITL alongside the CLI's own commands would create conflicting inputs.
 ============ =======================================================================================================================================================================================
 
 QGC can be used to monitor telemetry, view the map, inspect parameters, and observe flight in real time. All control commands go through the CLI.

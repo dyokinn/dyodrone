@@ -11,5 +11,6 @@ what changed when, and the vocabulary.
    dependencies
    design_decisions
    contributing
+   testing
    history
    glossary

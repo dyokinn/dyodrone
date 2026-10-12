@@ -1,25 +1,26 @@
 Entry points
 ============
 
-An *entry point* is a file you run directly. They all live in the
-``entry_points/`` folder at the repo root; everything else in the repo is
-library code that those scripts import (or documentation).
+An *entry point* is something you run. They are installed with the package as
+console scripts, so they are on your ``PATH`` once you ``pip install -e .`` an
+environment (see :doc:`../guide/installation`); there are no scripts to locate
+and no ``sys.path`` tricks.
 
 .. list-table::
    :header-rows: 1
 
-   * - Entry point
+   * - Command
      - What it does
      - Details
-   * - ``entry_points/drone_cli.py``
+   * - ``dyodrone-cli`` (or ``python -m dyodrone``)
      - Interactive curses console to monitor and command a drone
-     - :doc:`drone_cli`
-   * - ``entry_points/drone_gui.py``
+     - :doc:`dyodrone_cli`
+   * - ``dyodrone-gui``
      - Browser console: live vehicle info, command prompt, Simulator/Pixhawk toggle
-     - :doc:`drone_gui`
-   * - ``entry_points/build_docs.sh``
-     - Builds this documentation with Sphinx and Furo
-     - :doc:`build_docs`
+     - :doc:`dyodrone_gui`
+   * - ``tox -e <name>``
+     - Runners: tests on Python 3.7 / 3.12, live-simulator tests, the docs build
+     - :doc:`runners`
 
 Repository layout
 -----------------
@@ -27,46 +28,35 @@ Repository layout
 ::
 
    dyodrone/
-   ├── entry_points/                  ← everything you run lives here
-   │   ├── drone_cli.py
-   │   ├── drone_gui.py
-   │   └── build_docs.sh
-   ├── drone_controller.py            ← DroneController (ABC) the front ends depend on
-   ├── drone_console.py               ← backend selection + command handling shared by CLI and GUI
-   ├── drone_gui/                     ← web console: session, HTTP server, static page
-   ├── dronekit_version/              ← DroneKit backends (Python 3.7)
-   │   ├── dronekit_controller.py
-   │   ├── dronekit_sitl_controller.py
-   │   ├── dronekit_pixhawk_controller.py
-   │   ├── gcs_proxy.py
-   │   └── requirements-3.7.17.txt
-   ├── dyopilot_version/              ← pymavlink backends (Python 3.12+)
-   │   ├── dyopilot_controller.py
-   │   ├── dyopilot_sitl_controller.py
-   │   ├── dyopilot_pixhawk_controller.py
-   │   ├── pymavlink_reader.py
-   │   └── requirements.txt
+   ├── pyproject.toml                 ← metadata, extras (dronekit, dyopilot, docs, test), console scripts, pytest config
+   ├── tox.ini                        ← runners: which Python for which task
+   ├── src/dyodrone/
+   │   ├── core/                      ← controller ABC, commands, targets, GCS proxy, factory
+   │   ├── drivers/                   ← dronekit_driver (Python 3.7), dyopilot_driver + reader (pymavlink)
+   │   ├── cli.py                     ← dyodrone-cli
+   │   └── gui/                       ← dyodrone-gui: session, HTTP server, static page
+   ├── tests/                         ← pytest suite, one folder per layer
    └── docs/                          ← this documentation (Sphinx + Furo)
        ├── guide/                     ← installation, how, arch, proxy, troubleshooting
        ├── entry_points/              ← this section
        ├── api/                       ← autodoc reference
-       └── project/                   ← dependencies, design decisions, contributing, history, glossary
+       └── project/                   ← dependencies, design decisions, contributing, testing, history, glossary
 
 Running from anywhere
 ---------------------
 
-Entry points add the repo root to ``sys.path`` themselves, so they work from
-any current directory, for example:
+Once installed, the commands work from any directory:
 
 .. code-block:: bash
 
-   python entry_points/drone_cli.py --backend dyopilot-sitl
-   ./entry_points/build_docs.sh --open
+   dyodrone-cli --driver dyopilot --target sitl
+   dyodrone-gui --no-browser
+   tox -e docs
 
 .. toctree::
    :maxdepth: 1
    :hidden:
 
-   drone_cli
-   drone_gui
-   build_docs
+   dyodrone_cli
+   dyodrone_gui
+   runners

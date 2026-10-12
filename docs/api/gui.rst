@@ -1,7 +1,7 @@
 Web console
 ===========
 
-The package behind :doc:`../entry_points/drone_gui`.
+The package behind :doc:`../entry_points/dyodrone_gui`.
 
 Session
 -------
@@ -10,8 +10,6 @@ Session
    :members: connect, disconnect, submit, snapshot, close
 
 .. autoclass:: dyodrone.gui.session.SessionError
-
-.. autofunction:: dyodrone.gui.session.default_family
 
 Server
 ------

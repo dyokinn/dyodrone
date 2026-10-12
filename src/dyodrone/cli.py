@@ -28,8 +28,8 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments (backend, connection, refresh and GCS options)."""
     parser = argparse.ArgumentParser(
         description=(
-            "Interactive drone control CLI. Supports multiple backends: "
-            "SITL simulation, Pixhawk hardware, and PyMAVLink."
+            "Interactive drone control CLI. Pick a driver (DroneKit or dyopilot) "
+            "and a target (built-in simulator or Pixhawk)."
         )
     )
     parser.add_argument(

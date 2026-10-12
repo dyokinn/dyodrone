@@ -20,8 +20,12 @@ Glossary
       A Python library that wraps MAVLink in a ``Vehicle`` object. Unmaintained
       and limited to Python 3.7 here.
 
+   driver
+      The flight-control library behind a controller: ``dronekit`` or
+      ``dyopilot``. It decides which Python environment you need.
+
    dyopilot
-      This project's pymavlink-based flight code (``dyopilot_version``),
+      This project's pymavlink-based flight code (``dyodrone.drivers.dyopilot_driver``),
       which replaces DroneKit and runs on current Python.
 
    GCS
@@ -35,7 +39,7 @@ Glossary
 
    HEARTBEAT
       The periodic MAVLink message a vehicle sends to announce itself. A
-      backend is "connected" once it has received one.
+      a driver is "connected" once it has received one.
 
    LAND
       Flight mode that descends and disarms automatically.
@@ -50,7 +54,7 @@ Glossary
 
    Pixhawk
       A common flight-controller board running ArduPilot or PX4. The
-      ``*-pixhawk`` backends connect to it over serial, TCP or UDP.
+      ``pixhawk`` target connects to it over serial, TCP or UDP.
 
    pymavlink
       The Python MAVLink library used directly by dyopilot.
@@ -66,3 +70,8 @@ Glossary
 
    STABILIZE
       ArduCopter's default manual-style mode at power-up; the simulator starts here.
+
+   target
+      Where a driver connects: ``sitl`` (the built-in simulator) or ``pixhawk``
+      (a connection string you give it). A target supplies the connection string
+      and stops whatever it started.

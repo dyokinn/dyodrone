@@ -7,19 +7,20 @@ decision, the reason, and where it shows up.
 Two virtual environments instead of one
 ---------------------------------------
 
-*Decision.* DroneKit backends run on Python 3.7; dyopilot backends run on
-3.12+. They never share an interpreter.
+*Decision.* The ``dronekit`` driver runs on Python 3.7; the ``dyopilot``
+driver runs on 3.12+. They never share an interpreter.
 
 *Why.* ``dronekit==2.9.2`` subclasses ``collections.MutableMapping``
 (removed in Python 3.10), so ``import dronekit`` cannot work on a current
 interpreter. dyopilot exists to avoid that dependency.
 
-*Where.* :doc:`../guide/installation`, the two requirements files.
+*Where.* :doc:`../guide/installation`, the ``dronekit`` and ``dyopilot`` extras in ``pyproject.toml``.
 
 ``dronekit_sitl`` runs in-process on Python 3.12
 ------------------------------------------------
 
-*Decision.* ``dyopilot-sitl`` calls ``dronekit_sitl.start_default()`` directly;
+*Decision.* ``SitlTarget`` calls ``dronekit_sitl.start_default()`` directly,
+in-process, for either driver;
 there is no helper process running under Python 3.7.
 
 *Why.* Checked empirically in a throwaway Python 3.12 environment:
@@ -28,26 +29,26 @@ there is no helper process running under Python 3.7.
 A cross-interpreter subprocess bridge would have added a launch protocol,
 interpreter discovery and orphan-process handling for no benefit.
 
-*Where.* ``dyopilot_version/dyopilot_sitl_controller.py``.
+*Where.* ``dyodrone/core/targets.py`` (``SitlTarget``).
 
-Lazy backend imports plus a version gate in the CLI
+Lazy driver imports plus a version gate
 ---------------------------------------------------
 
-*Decision.* ``create_controller()`` imports a backend only inside the branch
-that selects it, and ``dronekit-*`` backends raise ``BackendUnavailable`` with
+*Decision.* ``create_controller()`` imports a driver only inside the branch
+that selects it, and the ``dronekit`` driver raises ``BackendUnavailable`` with
 an explanatory message on Python ≥ 3.10 (the CLI turns it into an exit
 message, the web console into a red console line).
 
 *Why.* Importing all controllers at the top of the file meant a single
 ``from dronekit import …`` broke the whole CLI on new Pythons, even for
-backends that never use DroneKit.
+drivers that never use DroneKit.
 
-*Where.* ``drone_console.py`` (``create_controller``, ``require_python37``).
+*Where.* ``dyodrone/core/factory.py`` (``create_controller``, ``require_python37``).
 
 Legacy ``SET_MODE`` instead of ``set_mode_apm()``
 -------------------------------------------------
 
-*Decision.* ``_PyMAVLinkBase._set_mode`` sends ``SET_MODE`` via
+*Decision.* ``DyopilotController._set_mode`` sends ``SET_MODE`` via
 ``mav.set_mode_send`` using ``master.mode_mapping()``.
 
 *Why.* pymavlink 2.4.8 sent ``SET_MODE``; current releases send
@@ -56,21 +57,21 @@ answers that with ``COMMAND_ACK`` result 3 (unsupported), so the mode never
 changed and ``takeoff`` timed out. Found by running a live simulator, not by
 reading code.
 
-*Where.* ``dyopilot_version/dyopilot_controller.py``.
+*Where.* ``dyodrone/drivers/dyopilot_driver.py``; pinned by a regression test.
 
-One GCS proxy shared by both backend families
+One GCS proxy shared by both drivers
 ---------------------------------------------
 
 *Decision.* ``GCSProxy`` has two entry points: ``start(vehicle)`` for
 DroneKit's message listener and ``forward(raw_bytes)`` for anything else. The
-dyopilot backends pass ``proxy.forward`` as the ``on_frame`` callback of
+The dyopilot driver passes ``proxy.forward`` as the ``on_frame`` callback of
 ``MAVLinkReader``.
 
 *Why.* The simulator streams to one TCP client only, so the proxy forwards
-frames the backend already receives over UDP rather than opening a second
+frames the driver already receives over UDP rather than opening a second
 connection.
 
-*Where.* ``dronekit_version/gcs_proxy.py``, ``dyopilot_version/pymavlink_reader.py``.
+*Where.* ``dyodrone/core/proxy.py``, ``dyodrone/drivers/dyopilot_reader.py``.
 
 A reader thread for pymavlink
 -----------------------------
@@ -81,19 +82,66 @@ A reader thread for pymavlink
 ``master.messages`` / ``master.flightmode`` unless something keeps calling
 ``recv_msg()``.
 
-*Where.* ``dyopilot_version/pymavlink_reader.py``.
+*Where.* ``dyodrone/drivers/dyopilot_reader.py``.
 
-Entry points in their own folder
---------------------------------
+Driver and target are separate
+------------------------------
 
-*Decision.* Everything you run lives in ``entry_points/``; library code stays
-at the repo root.
+*Decision.* A controller is *driver × target*: ``DroneKitController(target)`` and
+``DyopilotController(target)``, where a ``Target`` (``SitlTarget`` or
+``ExternalTarget``) supplies the connection string and tears down what it
+started. The four ``*SITL`` / ``*Pixhawk`` subclasses were removed, and
+``--backend`` became ``--driver`` and ``--target``.
 
-*Why.* Keeps runnable files separate from importable ones. Because the script
-now lives one level below the packages, it puts the repo root on ``sys.path``
-itself.
+*Why.* The four "backends" were really two independent choices: the library
+decides the Python environment, the target only decides where the connection
+string comes from. Four classes duplicated the same start-simulator-or-use-a-string
+logic per library, and front ends had to build and re-parse ``"<family>-<mode>"``
+strings. As a side effect the QGC proxy now works with either target.
 
-*Where.* :doc:`../entry_points/index`.
+*Where.* ``dyodrone/core/targets.py``, ``dyodrone/drivers/``, ``dyodrone/core/factory.py``.
+
+One installable package with console scripts
+--------------------------------------------
+
+*Decision.* Code lives in ``src/dyodrone`` and is installed with
+``pip install -e ".[<extra>]"``; ``dyodrone-cli`` and ``dyodrone-gui`` are console
+scripts (plus ``python -m dyodrone``). Dependencies are extras
+(``dronekit``, ``dyopilot``, ``docs``, ``test``) instead of requirements files.
+
+*Why.* A script in an ``entry_points/`` folder had to patch ``sys.path`` to find
+the code beside it, and three requirements files lived in three folders. With a
+package, imports are ordinary, entry points are on ``PATH`` after installing, and
+one file says what each environment needs. The package stays Python 3.7
+compatible so the same project installs in both environments.
+
+*Where.* ``pyproject.toml``.
+
+tox as the runner
+-----------------
+
+*Decision.* ``tox.ini`` has one environment per task (``dyopilot`` on 3.12,
+``dronekit`` on 3.7, ``sitl``, ``docs``) in place of ``build_docs.sh``.
+
+*Why.* The recurring question is "which Python and which extras for this task";
+tox writes the answer down and creates the environments. The Python 3.7
+environments pin the pip and setuptools virtualenv seeds, because the defaults no
+longer run on 3.7.
+
+*Where.* ``tox.ini``; :doc:`../entry_points/runners`.
+
+Command handling and driver selection live in the core
+------------------------------------------------------
+
+*Decision.* ``handle_command()`` and ``create_controller()`` live in
+``dyodrone.core``, which imports no UI toolkit, and both front ends use them.
+
+*Why.* The curses CLI and the web console must behave identically; copying the
+command parser would let them drift. The unusable-driver case is an exception
+(``BackendUnavailable``) rather than ``SystemExit`` because a worker thread
+silently swallows ``SystemExit``.
+
+*Where.* ``dyodrone/core/commands.py``, ``dyodrone/core/factory.py``.
 
 DroneKit is mocked when building the docs
 -----------------------------------------
@@ -102,24 +150,10 @@ DroneKit is mocked when building the docs
 ``pymavlink`` is installed for real.
 
 *Why.* DroneKit cannot be imported on the docs interpreter. ``pymavlink`` is
-needed because ``dyopilot_version`` ORs ``mavutil`` constants at import time,
+needed because the dyopilot driver ORs ``mavutil`` constants at import time,
 which a mock cannot do.
 
 *Where.* ``docs/conf.py``.
-
-Front-end logic lives in one shared module
-------------------------------------------
-
-*Decision.* ``handle_command()``, ``create_controller()`` and the backend
-tables were moved out of ``entry_points/drone_cli.py`` into ``drone_console.py``,
-which imports no UI toolkit.
-
-*Why.* The curses CLI and the web console must behave identically; copying the
-command parser would let them drift. The unusable-backend case became an
-exception (``BackendUnavailable``) rather than ``SystemExit`` because a worker
-thread silently swallows ``SystemExit``.
-
-*Where.* ``drone_console.py``.
 
 A local web page instead of a desktop toolkit
 ---------------------------------------------
@@ -130,9 +164,9 @@ standard library, not tkinter or Qt.
 *Why.* Checked on the development machine: ``tkinter`` was available only in
 the Python 3.7 interpreter; the 3.12 environments had no ``_tkinter``. Qt would
 add a large dependency and not support 3.7. A stdlib server and a single HTML
-file run unchanged in both environments, so both backend families get a GUI.
+file run unchanged in both environments, so both drivers get a GUI.
 
-*Where.* ``drone_gui/``, ``entry_points/drone_gui.py``.
+*Where.* ``dyodrone/gui/``.
 
 Token, Host and Origin checks on the GUI API
 --------------------------------------------
@@ -144,7 +178,7 @@ matching the bound address and, if present, a matching ``Origin``.
 open in the browser could POST to ``localhost`` (cross-site request forgery) or
 use DNS rebinding to reach the server.
 
-*Where.* ``drone_gui/server.py``.
+*Where.* ``dyodrone/gui/server.py``.
 
 A command worker thread with polling
 ------------------------------------
@@ -158,4 +192,4 @@ the vehicle is armed, so requests must return immediately. A single queue keeps
 commands in order. Polling avoids websockets, which the standard library does
 not provide.
 
-*Where.* ``drone_gui/session.py``.
+*Where.* ``dyodrone/gui/session.py``.

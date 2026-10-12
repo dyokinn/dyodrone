@@ -6,31 +6,32 @@
 dyodrone documentation
 ======================
 
-An interactive terminal CLI for monitoring and commanding a drone, with
-interchangeable backends behind one abstract interface
-(:py:class:`drone_controller.DroneController`).
+Console and web front ends for commanding a drone. You pick a **driver** (the
+flight-control library) and a **target** (what it connects to); both sit behind
+one abstract interface
+(:py:class:`dyodrone.core.controller.DroneController`).
 
 .. list-table::
    :header-rows: 1
 
-   * - ``--backend``
-     - Drives the vehicle with
-     - Python
-   * - ``dronekit-sitl``
-     - DroneKit ``Vehicle`` against a built-in ArduCopter 3.3 SITL
-     - 3.7
-   * - ``dronekit-pixhawk``
+   * -
+     - ``--target sitl``
+     - ``--target pixhawk``
+   * - ``--driver dronekit`` (Python 3.7)
+     - DroneKit ``Vehicle`` against the built-in ArduCopter 3.3 simulator
      - DroneKit ``Vehicle`` against a real Pixhawk
-     - 3.7
-   * - ``dyopilot-sitl``
-     - Raw pymavlink against a built-in ArduCopter 3.3 SITL
-     - 3.12+
-   * - ``dyopilot-pixhawk``
+   * - ``--driver dyopilot`` (Python 3.12+)
+     - Raw pymavlink against the built-in simulator
      - Raw pymavlink against a real Pixhawk
-     - 3.12+
 
-The two backend families live in separate virtual environments because
-DroneKit cannot be imported on Python 3.10+ — see :doc:`guide/how` for the setup.
+The two drivers live in separate virtual environments because DroneKit cannot be
+imported on Python 3.10+ — see :doc:`guide/how` for the setup.
+
+.. code-block:: bash
+
+   pip install -e ".[dyopilot]"                  # in a Python 3.12 environment
+   dyodrone-cli --driver dyopilot --target sitl  # curses console
+   dyodrone-gui                                  # browser console
 
 .. toctree::
    :maxdepth: 2
@@ -61,10 +62,10 @@ Building these docs
 
 .. code-block:: bash
 
-   ./entry_points/build_docs.sh            # creates .venv-docs, installs deps, builds docs/_build/html
-   ./entry_points/build_docs.sh --clean --open
+   tox -e docs                # creates a Python 3.12 environment and builds docs/_build/html
 
-The script wraps ``make -C docs html`` and treats Sphinx warnings as errors.
+See :doc:`entry_points/runners`; without tox, ``pip install -e ".[docs]"`` then
+``sphinx-build -W -b html docs docs/_build/html``.
 
 Indices and tables
 ==================

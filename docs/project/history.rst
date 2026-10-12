@@ -8,28 +8,29 @@ Unreleased
 
 *Working tree on top of* ``48f2ccf``.
 
-* **Four backends.** ``--backend`` is now ``dronekit-sitl``,
-  ``dronekit-pixhawk``, ``dyopilot-sitl`` or ``dyopilot-pixhawk`` (previously
-  ``sitl``, ``pixhawk``, ``mavlink``).
-* **dyopilot split** into ``_PyMAVLinkBase``, ``DyopilotSITLController`` and
-  ``DyopilotPixhawkController`` with a background ``MAVLinkReader``;
-  ``dyopilot.py`` removed. ``dyopilot-pixhawk`` is new.
-* **Separate requirements** for the 3.12 environment
-  (``dyopilot_version/requirements.txt``).
-* **Fix:** mode changes on the bundled ArduCopter 3.3 now use the legacy
-  ``SET_MODE`` message (:doc:`design_decisions`).
-* **CLI:** lazy backend imports and a Python-version gate for ``dronekit-*``.
-* **GCSProxy.forward()** added so non-DroneKit backends can feed the proxy.
-* **Web console** ``entry_points/drone_gui.py``: a browser GUI with a console
-  prompt, live vehicle info, a Simulator/Pixhawk toggle and Connect/Disconnect.
-  Standard library only; runs on Python 3.7 and 3.12.
-* **Shared module** ``drone_console.py``: ``create_controller()`` and
-  ``handle_command()`` moved out of the CLI so both front ends share them.
-* **Entry points** moved to ``entry_points/``; ``drone_cli.py`` bootstraps
-  ``sys.path``.
-* **Documentation** rebuilt as a Sphinx project with the Furo theme
-  (guide, entry points, API reference, project notes) and a ``build_docs.sh``
-  script.
+* **Package.** Code moved into ``src/dyodrone`` and is installed with
+  ``pip install -e ".[dronekit]"`` or ``".[dyopilot]"``. ``dyodrone-cli``,
+  ``dyodrone-gui`` and ``python -m dyodrone`` replace the ``entry_points/``
+  scripts; requirements files became extras.
+* **Driver × target.** ``--backend`` is replaced by ``--driver {dronekit,dyopilot}``
+  and ``--target {sitl,pixhawk}``. Two controllers (``DroneKitController``,
+  ``DyopilotController``) take a ``Target`` (``SitlTarget`` / ``ExternalTarget``);
+  the four ``*SITL`` / ``*Pixhawk`` subclasses are gone. The QGC proxy works with
+  either target.
+* **dyopilot driver** on raw pymavlink with a background ``MAVLinkReader``, runs
+  on Python 3.12+; ``dyopilot-pixhawk`` is new.
+* **Web console** ``dyodrone-gui``: a browser GUI with a console prompt, live
+  vehicle info, a Simulator/Pixhawk toggle and Connect/Disconnect. Standard
+  library only; runs on Python 3.7 and 3.12.
+* **Tests.** A layered pytest suite (core, drivers, GUI, CLI) plus opt-in
+  live-simulator and docs-build tests; tox environments for Python 3.12 and 3.7.
+* **Fix:** mode changes on the bundled ArduCopter 3.3 use the legacy ``SET_MODE``
+  message (:doc:`design_decisions`).
+* **Fix:** a failed ``connect()`` releases the target, so no simulator is left
+  running.
+* **CLI:** lazy driver imports and a Python-version gate for ``dronekit``.
+* **Documentation** rebuilt as a Sphinx project with the Furo theme (guide, entry
+  points, API reference, project notes).
 
 2026-03-21 — ``48f2ccf`` "FEAT: FIRST STABLE VERSION"
 -----------------------------------------------------

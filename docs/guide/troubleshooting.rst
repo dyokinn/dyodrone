@@ -4,12 +4,12 @@ Troubleshooting
 Problems that have actually been hit while building this project, with their
 cause and fix. QGroundControl-specific problems are in :doc:`proxy`.
 
-``Backend 'dronekit-…' requires Python 3.7``
+``Driver 'dronekit' requires Python 3.7``
 --------------------------------------------
 
-You ran a ``dronekit-*`` backend on Python 3.10+. The CLI refuses up front
+You ran ``--driver dronekit`` on Python 3.10+. The CLI refuses up front
 instead of crashing. Activate the Python 3.7 environment
-(:doc:`installation`), or switch to the equivalent ``dyopilot-*`` backend.
+(:doc:`installation`), or use ``--driver dyopilot``.
 
 ``AttributeError: module 'collections' has no attribute 'MutableMapping'``
 --------------------------------------------------------------------------
@@ -33,14 +33,14 @@ environment pins ``pymavlink==2.4.49``.
 Cause: current pymavlink's ``set_mode_apm()`` sends ``MAV_CMD_DO_SET_MODE``,
 which the bundled ArduCopter 3.3 firmware rejects (``COMMAND_ACK`` result 3,
 "unsupported"). dyopilot therefore sends the legacy ``SET_MODE`` message
-itself (``_PyMAVLinkBase._set_mode``). If you write new pymavlink code against
+itself (``DyopilotController._set_mode``). If you write new pymavlink code against
 this simulator, do the same. Details: :doc:`../project/design_decisions`.
 
 "No heartbeat received" when connecting a second client
 -------------------------------------------------------
 
 The SITL instance streams to a single TCP client. A second
-``mavlink_connection('tcp:127.0.0.1:5760')`` while a backend is running gets no
+``mavlink_connection('tcp:127.0.0.1:5760')`` while a driver is connected gets no
 heartbeat and times out. To watch the same simulator from another tool, use the
 UDP GCS proxy (``--gcs-port``), not a second TCP connection.
 
@@ -61,19 +61,20 @@ terminal width.
 Docs build fails on import errors
 ---------------------------------
 
-Autodoc imports the project. Use ``./entry_points/build_docs.sh`` (it installs
-``pymavlink`` and mocks DroneKit). A raw ``sphinx-build`` in an environment
-without ``pymavlink`` fails when importing ``dyopilot_version``.
+Autodoc imports the project. Use ``tox -e docs`` (it installs the ``docs`` extra, including
+``pymavlink``, and the build mocks DroneKit). A raw ``sphinx-build`` in an
+environment without the package or ``pymavlink`` fails when importing
+``dyodrone.drivers``.
 
 Web console
 -----------
 
 "invalid token — reopen the URL printed in the terminal"
    The page was opened without the per-run token, or the server was restarted
-   (each start has a new token). Use the URL ``drone_gui.py`` printed.
+   (each start has a new token). Use the URL ``dyodrone-gui`` printed.
 
 "server unreachable"
-   The ``drone_gui.py`` process stopped. Start it again.
+   The ``dyodrone-gui`` process stopped. Start it again.
 
 ``Cannot listen on 127.0.0.1:8765``
    The port is taken, often by an earlier run. Pick another with ``--port``
@@ -83,8 +84,8 @@ Nothing opens in the browser
    Use ``--no-browser`` and open the printed URL yourself.
 
 Connect fails immediately with "requires Python 3.7"
-   The ``dronekit`` family was selected on Python 3.10+. Start the GUI from the
-   Python 3.7 environment, or leave ``--family`` at its default.
+   The ``dronekit`` driver was selected on Python 3.10+. Start the GUI from the
+   Python 3.7 environment, or leave ``--driver`` at its default.
 
 ``takeoff`` seems stuck
    It blocks until the vehicle is armable, in GUIDED mode and armed (up to a
