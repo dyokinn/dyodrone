@@ -17,6 +17,7 @@ from pymavlink import mavutil
 
 from dyodrone.core.controller import DroneController
 from dyodrone.core.proxy import GCSProxy
+from dyodrone.core.telemetry import Telemetry
 from dyodrone.core.targets import Target
 
 LOG = logging.getLogger(__name__)
@@ -113,6 +114,19 @@ class DroneKitController(DroneController):
                 getattr(battery, "level", "unknown"),
             ),
         ]
+
+    def telemetry(self) -> Telemetry:
+        vehicle = self.vehicle
+        loc = vehicle.location.global_relative_frame
+        yaw = getattr(vehicle.attitude, "yaw", None)
+        return Telemetry(
+            lat=getattr(loc, "lat", None),
+            lon=getattr(loc, "lon", None),
+            rel_alt_m=getattr(loc, "alt", None),
+            yaw_deg=math.degrees(yaw) % 360 if yaw is not None else None,
+            armed=bool(vehicle.armed) if vehicle.armed is not None else None,
+            mode=vehicle.mode.name if vehicle.mode else None,
+        )
 
     def arm_and_takeoff(self, target_altitude: float) -> None:
         if target_altitude <= 0:

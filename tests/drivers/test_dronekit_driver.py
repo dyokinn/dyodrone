@@ -164,3 +164,19 @@ def test_failed_connect_releases_the_target(monkeypatch):
     with pytest.raises(ConnectionRefusedError):
         ctrl.connect()
     assert target.log == ["acquire", "release"]
+
+
+def test_telemetry_reads_the_vehicle(ctrl):
+    ctrl.vehicle.armed = True
+    ctrl.vehicle.mode = SimpleNamespace(name="GUIDED")
+    ctrl.vehicle.attitude.yaw = -math.pi / 2
+    t = ctrl.telemetry()
+    assert (t.lat, t.lon, t.rel_alt_m) == (-35.363261, 149.165230, 10.0)
+    assert t.yaw_deg == pytest.approx(270.0)
+    assert t.armed is True and t.mode == "GUIDED"
+
+
+def test_telemetry_tolerates_missing_position(ctrl):
+    ctrl.vehicle.location.global_relative_frame = SimpleNamespace(lat=None, lon=None, alt=None)
+    t = ctrl.telemetry()
+    assert (t.lat, t.lon, t.rel_alt_m) == (None, None, None)

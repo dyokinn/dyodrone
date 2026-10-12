@@ -5,6 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
+from dyodrone.core.telemetry import Telemetry
+
 
 class DroneController(ABC):
     """Backend-agnostic contract for connecting to and commanding a drone.
@@ -75,6 +77,15 @@ class DroneController(ABC):
     def rotate_right(self, degrees: float) -> None:
         """Yaw right (clockwise) by the given degrees."""
         ...
+
+    def telemetry(self) -> Telemetry:
+        """Return a structured snapshot of the vehicle state.
+
+        Read from the MAVLink data the driver already caches (position,
+        attitude, heartbeat), so it is cheap and needs no extra requests.
+        Used by flight plans to decide when a command has finished.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not provide telemetry()")
 
     def connection_details(self) -> List[str]:
         """Return human-readable lines describing the active connection(s).

@@ -275,3 +275,28 @@ def test_battery_sentinels_are_reported_as_unknown():
 @pytest.mark.parametrize("fix, label", [(0, "no GPS"), (3, "3D"), (6, "RTK-fixed"), (9, "type=9")])
 def test_gps_fix_labels(fix, label):
     assert DyopilotController._format_gps_fix(SimpleNamespace(fix_type=fix)) == label
+
+
+# -- structured telemetry ---------------------------------------------------
+
+
+def test_telemetry_reads_position_attitude_and_heartbeat(ctrl, master):
+    master.arm()
+    master.flightmode = "GUIDED"
+    master.set_position(HOME_LAT, HOME_LON, relative_alt_m=9.5, yaw=math.pi / 2)
+    t = ctrl.telemetry()
+    assert (t.lat, t.lon) == (pytest.approx(HOME_LAT, abs=1e-7), pytest.approx(HOME_LON, abs=1e-7))
+    assert t.rel_alt_m == pytest.approx(9.5)
+    assert t.yaw_deg == pytest.approx(90.0)
+    assert t.armed is True and t.mode == "GUIDED"
+
+
+def test_telemetry_yaw_is_normalised_to_0_360(ctrl, master):
+    master.set_position(HOME_LAT, HOME_LON, yaw=-math.pi / 2)  # -90 deg = West
+    assert ctrl.telemetry().yaw_deg == pytest.approx(270.0)
+
+
+def test_telemetry_fields_are_none_until_received(ctrl, master):
+    master.messages.clear()
+    t = ctrl.telemetry()
+    assert (t.lat, t.lon, t.rel_alt_m, t.yaw_deg, t.armed) == (None,) * 5

@@ -17,6 +17,7 @@ from pymavlink import mavutil
 
 from dyodrone.core.controller import DroneController
 from dyodrone.core.proxy import GCSProxy
+from dyodrone.core.telemetry import Telemetry
 from dyodrone.core.targets import Target
 from dyodrone.drivers.dyopilot_reader import MAVLinkReader
 
@@ -120,6 +121,20 @@ class DyopilotController(DroneController):
             f"Velocity: {self._format_velocity(pos)}",
             f"Battery: {self._format_battery(sys_status)}",
         ]
+
+    def telemetry(self) -> Telemetry:
+        master = self.master
+        hb = master.messages.get("HEARTBEAT")
+        pos = master.messages.get("GLOBAL_POSITION_INT")
+        att = master.messages.get("ATTITUDE")
+        return Telemetry(
+            lat=pos.lat / 1e7 if pos is not None else None,
+            lon=pos.lon / 1e7 if pos is not None else None,
+            rel_alt_m=pos.relative_alt / 1000.0 if pos is not None else None,
+            yaw_deg=math.degrees(att.yaw) % 360 if att is not None else None,
+            armed=bool(hb.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) if hb is not None else None,
+            mode=master.flightmode or None,
+        )
 
     def arm_and_takeoff(self, target_altitude: float) -> None:
         if target_altitude <= 0:
