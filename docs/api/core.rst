@@ -24,6 +24,30 @@ Driver selection
 .. automodule:: dyodrone.core.factory
    :members: DRIVERS, DEFAULT_CONNECTION, DEFAULT_GCS_PORT, BackendUnavailable, default_driver, require_python37, create_controller
 
+Telemetry
+---------
+
+.. automodule:: dyodrone.core.telemetry
+   :members:
+
+Flight plans
+------------
+
+.. automodule:: dyodrone.core.plan
+   :members: PLAN_VERBS, Step, PlanError, parse_plan, format_plan
+
+.. automodule:: dyodrone.core.expect
+   :members: Tolerances, MissingTelemetry, CheckResult, Expectation, expected_after, describe_step, angle_error_deg
+
+.. automodule:: dyodrone.core.plan_runner
+   :members: PlanEvent, PlanRunner
+
+Voice grammar
+-------------
+
+.. automodule:: dyodrone.core.voice
+   :members: KEYWORDS, VOCABULARY, parse_number, slice_commands
+
 Commands
 --------
 

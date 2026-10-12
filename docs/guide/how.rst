@@ -15,7 +15,7 @@ Starting the CLI
    dyodrone-cli --interval 1.0                           # refresh telemetry every 1 s
    python -m dyodrone                                    # same as dyodrone-cli
 
-Prefer a browser? ``dyodrone-gui`` offers the same commands with a connection toggle — see :doc:`../entry_points/dyodrone_gui`.
+Prefer a browser? ``dyodrone-gui`` offers the same commands with a connection toggle, plus :doc:`flight plans <plans>` and :doc:`voice commands <voice>` that you can switch on and off while it runs — see :doc:`../entry_points/dyodrone_gui`. To fly a plan file with no UI, use ``dyodrone-plan`` (:doc:`../entry_points/dyodrone_plan`).
 
 You pick a **driver** (the flight-control library) and a **target** (what it connects to); see :ref:`drivers-and-targets`. ``--driver dronekit`` must be run under the Python 3.7 interpreter and ``--driver dyopilot`` on Python 3.12; each process is fully self-contained — nothing talks to another interpreter. Without ``--driver`` the CLI picks the one that can run on the current Python.
 

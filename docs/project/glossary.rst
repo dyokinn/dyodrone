@@ -75,3 +75,22 @@ Glossary
       Where a driver connects: ``sitl`` (the built-in simulator) or ``pixhawk``
       (a connection string you give it). A target supplies the connection string
       and stops whatever it started.
+
+   flight plan
+      A text file with one console command per line (plus ``wait``) that the plan
+      runner flies step by step. See :doc:`/guide/plans`.
+
+   margin
+      How close the vehicle must get to a step's expected end state to count as
+      arrived: ``max(10 % of the commanded amount, a small absolute floor)``.
+
+   cancel window
+      The seconds a recognised voice command waits before it runs, during which it
+      can be cancelled. ``land`` skips it.
+
+   telemetry
+      The vehicle's reported state (position, altitude, heading, armed, mode),
+      carried by MAVLink messages such as ``GLOBAL_POSITION_INT`` and ``ATTITUDE``.
+
+   Vosk
+      The offline speech-recognition library used by voice mode.

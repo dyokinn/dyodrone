@@ -2,14 +2,18 @@ dyodrone-gui
 ============
 
 A browser-based console for the same vehicle commands as :doc:`dyodrone_cli`. It
-shows live vehicle info, takes commands at a prompt, and lets you switch
-between the simulator and a real Pixhawk and connect or disconnect — without a
-terminal UI. It uses only the standard library, so it runs on both the Python
-3.7 and the Python 3.12 environments.
+shows live vehicle info, lets you switch between the simulator and a real
+Pixhawk, and accepts commands from **three input types that you can switch on
+and off while it runs**: the console prompt, a :doc:`flight plan
+<../guide/plans>`, and :doc:`voice <../guide/voice>`. The server uses only the
+standard library, so it runs on both the Python 3.7 and the Python 3.12
+environments (voice needs the optional ``voice`` extra).
 
 .. code-block:: bash
 
    dyodrone-gui [--host HOST] [--port PORT] [--driver {dronekit,dyopilot}] [--no-browser]
+                [--plan-poll S] [--plan-margin F] [--plan-timeout S]
+                [--voice-delay S] [--vosk-model FOLDER]
 
 The script prints a URL such as ``http://127.0.0.1:8765/?token=…`` and opens it
 in your browser. Press ``Ctrl+C`` (or send ``SIGTERM``) to stop it; the vehicle
@@ -36,6 +40,21 @@ Arguments
      - by interpreter
      - ``dronekit`` or ``dyopilot``. Defaults to ``dronekit`` on Python < 3.10
        and ``dyopilot`` otherwise.
+   * - ``--plan-poll``
+     - ``3``
+     - Flight plans: seconds between telemetry checks while a command runs.
+   * - ``--plan-margin``
+     - ``0.10``
+     - Flight plans: allowed error as a fraction of the commanded amount.
+   * - ``--plan-timeout``
+     - ``120``
+     - Flight plans: fail a step not completed this long after it was sent.
+   * - ``--voice-delay``
+     - ``2``
+     - Voice: seconds a recognised command waits, cancellable, before it runs.
+   * - ``--vosk-model``
+     - (download once)
+     - Voice: folder of an unpacked Vosk model.
    * - ``--no-browser``
      - off
      - Print the URL instead of opening a browser.
@@ -68,6 +87,63 @@ Console
 Vehicle and Connection panels
    The same snapshot the CLI shows, refreshed every second, plus the connection
    string and QGroundControl proxy target.
+
+Input switches
+--------------
+
+Three switches under the header turn input types on and off **at runtime**,
+without reconnecting:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 14 72
+
+   * - Switch
+     - Default
+     - Effect
+   * - **Console**
+     - on
+     - The prompt and the command buttons accept input. Off: the prompt is disabled
+       and the server refuses console commands.
+   * - **Plan**
+     - off
+     - Enables the Flight plan panel (:doc:`../guide/plans`). Turning it off stops a
+       running plan.
+   * - **Voice**
+     - off
+     - Starts listening on the microphone (:doc:`../guide/voice`). The first time,
+       the speech model is loaded (and downloaded once). Turning it off closes the
+       microphone and drops pending voice commands.
+
+The switches are independent, and their state is on the server, so it survives a
+page reload. Rules that keep them from fighting each other:
+
+* While a **flight plan runs**, console and voice commands are locked out (they would
+  invalidate the plan's expected positions). The prompt shows "Locked while a flight
+  plan runs".
+* **Land now** (red button, top right) is always available while connected. It
+  ignores every switch and lock: it stops the plan, drops queued and pending
+  voice commands, and lands at once.
+* A switch that is off refuses commands from its source with a message instead
+  of silently ignoring them.
+
+Flight-plan panel
+-----------------
+
+*Upload .txt* / the editor / *From log* / *Download* / *Validate*, then **Run**,
+**Pause**/**Resume** and **Stop**. The step list shows each step's state
+(``○`` pending, ``◔`` waiting for the vehicle, ``✓`` done, ``✗`` failed) with the
+latest measured-versus-expected values, for example ``alt 8.5/10 m (±1.0)``.
+Errors are listed with their line numbers. *From log* loads the flight commands you
+ran successfully this session. Format and behaviour: :doc:`../guide/plans`.
+
+Voice panel
+-----------
+
+Shows whether the microphone is listening, the live partial transcript, and the
+**pending voice commands** with a countdown and a **Cancel** button each (plus
+**Cancel all**). Details: :doc:`../guide/voice`. The page needs microphone
+permission; if the browser refuses, Voice switches itself off and the panel says why.
 
 Connection toggle
 -----------------
@@ -122,7 +198,8 @@ in your browser trying to reach ``localhost``:
   bar);
 * the ``Host`` header must match the address the server is bound to, and an
   ``Origin`` header, if present, must be the server itself;
-* anything else is answered with ``403``.
+* anything else is answered with ``403``. This applies to every endpoint,
+  including the microphone audio upload.
 
 The default bind address is loopback only. If you bind another address with
 ``--host``, anyone who can reach it *and* knows the token can command the
@@ -150,7 +227,26 @@ header.
    * - ``POST /api/disconnect``
      - Close the connection (``409`` while a connection attempt is running).
    * - ``POST /api/command``
-     - ``{"line": "takeoff 10"}``. Queued; results appear in the log.
+     - ``{"line": "takeoff 10"}``. Queued; results appear in the log. ``409`` if
+       the Console switch is off or a plan is running.
+   * - ``POST /api/inputs``
+     - ``{"console": true, "plan": false, "voice": true}`` — any subset; state
+       reports ``inputs``. ``400`` for unknown names or non-booleans.
+   * - ``POST /api/emergency``
+     - Land now (``409`` if not connected).
+   * - ``POST /api/plan``
+     - ``{"text": "…"}`` validates and loads a plan; ``200`` with the steps, or
+       ``400`` with ``errors: [{"line", "message"}]``.
+   * - ``POST /api/plan/run``, ``/pause``, ``/resume``, ``/stop``
+     - Control the loaded plan (``409`` if the Plan switch is off, nothing is
+       loaded, or the state does not allow it). Progress is in ``state.plan``.
+   * - ``GET /api/plan/history``
+     - ``{"text", "count"}``: the session's successful flight commands as plan text.
+   * - ``POST /api/voice/audio``
+     - Raw 16 kHz mono little-endian PCM16 body (≤ 128 KB). Returns the live
+       partial transcript. ``409`` if Voice is off or still loading.
+   * - ``POST /api/voice/cancel``
+     - ``{"id": n}`` cancels one pending voice command, ``{}`` all of them.
 
 Code lives in ``dyodrone.gui`` (:doc:`../api/gui`); the command and driver logic
 is shared with the CLI in ``dyodrone.core`` (:doc:`../api/core`).

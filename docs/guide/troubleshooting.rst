@@ -91,3 +91,57 @@ Connect fails immediately with "requires Python 3.7"
    It blocks until the vehicle is armable, in GUIDED mode and armed (up to a
    minute or so). The console shows ``running: takeoff …``; other commands wait
    in the queue, except ``info`` and ``help``.
+
+Flight plans
+------------
+
+``line N: …`` when validating
+   The plan text has a problem on that line; every problem is listed at once.
+   See :doc:`plans` for the format.
+
+A step ``timed out after 120 s``
+   The vehicle did not reach the expected state in time. The message shows the last
+   measured values (for example ``alt 4.1/10 m (±1.0)``). Common causes: a command the
+   vehicle ignored (not armed, wrong mode), a very long move (raise
+   ``--step-timeout``), or no GPS position yet. The plan stops there and the vehicle
+   hovers; use ``land`` or **Land now**.
+
+A short move never "finishes"
+   The margin has a floor (0.5 m, 2°) so tiny moves are achievable, but real GPS noise
+   can exceed it. Raise ``--margin`` or the floors, or use longer moves.
+
+"waiting for position telemetry"
+   The plan needs a position and heading before it can compute where a ``forward`` or
+   ``back`` should end. Wait for a 3D GPS fix (about 10 s after the simulator starts).
+
+Console and voice commands are refused while a plan runs
+   By design: they would invalidate the plan's expected positions. **Stop** the plan
+   (the vehicle hovers) or use **Land now**.
+
+Voice
+-----
+
+"Voice input unavailable: … vosk"
+   Install the optional package: ``pip install "dyodrone[voice]"`` in the same
+   environment as ``dyodrone-gui``.
+
+"Could not download the speech model"
+   The first use downloads about 40 MB. Download
+   ``vosk-model-small-en-us-0.15.zip`` yourself, unzip it, and start with
+   ``dyodrone-gui --vosk-model /path/to/vosk-model-small-en-us-0.15``.
+
+"Microphone unavailable …"
+   The browser refused microphone access. Allow it for the page and switch Voice on
+   again. The page must be served from ``127.0.0.1`` or ``localhost`` (or https);
+   a console bound to another address cannot use the microphone.
+
+Commands are not recognised, or are mis-heard
+   Say the keywords exactly (``takeoff``, not ``take off``), speak numbers as words
+   (``twenty five``), and pause briefly between commands so the phrase ends. The
+   console shows ``heard: "…"`` for every phrase and a note for anything dropped.
+   The small model is limited to the console vocabulary on purpose.
+
+A voice command did not run
+   Recognised commands wait ``--voice-delay`` seconds (default 2) so you can cancel
+   them, and are refused if the Voice switch was turned off or a plan started in
+   the meantime (the console says so). ``land`` is never delayed.

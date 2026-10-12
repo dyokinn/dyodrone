@@ -12,6 +12,11 @@ Four layers: an abstract controller interface, two **drivers** (flight-control l
    ├── core/
    │   ├── controller.py      ← DroneController  (ABC)
    │   ├── commands.py        ← handle_command(), shared by both front ends
+   │   ├── telemetry.py       ← Telemetry snapshot (position, heading, armed, mode)
+   │   ├── plan.py            ← flight-plan text format and parser
+   │   ├── expect.py          ← expected end state of a command, margin checks
+   │   ├── plan_runner.py     ← closed-loop PlanRunner
+   │   ├── voice.py           ← spoken numbers and transcript → commands
    │   ├── targets.py         ← Target, SitlTarget, ExternalTarget
    │   ├── proxy.py           ← GCSProxy         (UDP forwarder to QGroundControl)
    │   └── factory.py         ← create_controller(driver, target, …)
@@ -20,7 +25,8 @@ Four layers: an abstract controller interface, two **drivers** (flight-control l
    │   ├── dyopilot_driver.py ← DyopilotController   (pymavlink, Python 3.12+)
    │   └── dyopilot_reader.py ← MAVLinkReader        (background message thread)
    ├── cli.py                 ← curses CLI    (dyodrone-cli, python -m dyodrone)
-   └── gui/                   ← web console   (dyodrone-gui): session, server, static page
+   ├── plan_cli.py            ← flight plans with no UI (dyodrone-plan)
+   └── gui/                   ← web console   (dyodrone-gui): session, server, voice_engine, static page
 
 A controller is *driver × target*: ``DroneKitController(target)`` or ``DyopilotController(target)``. The target only produces a connection string and tears down whatever it started, so the four combinations need two controller classes, not four.
 
@@ -72,6 +78,41 @@ Method                                   Behaviour
 ======================================== =========================================================================================
 
 Blocking helpers (``_wait_for_condition``, ``_wait_for_mode``, ``_ensure_armed``) are only used during setup operations — never in steady-state flight commands that must not freeze the UI.
+
+Flight plans and telemetry
+--------------------------
+
+Every driver implements ``telemetry()``, returning a ``Telemetry`` snapshot
+(latitude/longitude, relative altitude, heading, armed, mode) read from the MAVLink
+data the connection already caches. The plan machinery in ``core`` builds on it
+and is independent of both drivers:
+
+``plan.parse_plan(text)``
+   Text → ``Step`` objects, or a ``PlanError`` listing every line-numbered problem.
+``expect.expected_after(step, telemetry_before, tolerances)``
+   Pure function: the expected end state of a step and a ``check(telemetry)`` that
+   says whether the vehicle is there within ``max(10 % × amount, floor)``.
+``PlanRunner``
+   For each step: snapshot → expected state → send the command through
+   ``handle_command`` → poll telemetry every ``poll`` seconds until it matches or
+   ``step_timeout`` passes. Reports progress through a callback, supports
+   pause/resume/stop, and takes an injectable clock so tests run instantly.
+   Used by ``dyodrone-plan`` and by the web console.
+
+See :doc:`plans` for the file format and the completion rules.
+
+Web console: sessions, switches and voice
+-----------------------------------------
+
+``gui/session.py`` owns one vehicle connection and everything that can reach it.
+Commands from all sources go through ``submit(line, source)``; ``source`` is
+``console``, ``voice`` or ``emergency``. Three booleans (``inputs``) say which sources
+are enabled, and a running plan locks console and voice out; ``emergency`` bypasses
+both. Plans run on their own thread with a ``PlanRunner``; voice audio arrives at
+``voice_audio()``, is turned into commands by ``core/voice.py``, and waits in a
+cancellable *pending* list (timers) before it is submitted with ``source="voice"``.
+``gui/voice_engine.py`` hides the speech recogniser behind a two-method interface
+(``accept(pcm)``, ``close()``) with a Vosk implementation.
 
 .. _gcs-proxy--gcsproxy:
 

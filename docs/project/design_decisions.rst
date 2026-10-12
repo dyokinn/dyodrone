@@ -193,3 +193,66 @@ commands in order. Polling avoids websockets, which the standard library does
 not provide.
 
 *Where.* ``dyodrone/gui/session.py``.
+
+Plans are closed-loop, not timed
+--------------------------------
+
+*Decision.* A flight plan advances when telemetry says the previous command has
+*finished* (expected end state reached within ``max(10 % × amount, floor)``, checked
+every 3 s), not after a fixed delay. A plan has no timing in its file format, and
+recording from the console stores none.
+
+*Why.* ``forward 5`` returns the moment it is sent; the vehicle is still flying, so
+back-to-back lines would interrupt each other, and any fixed delay is wrong for
+some vehicle, wind or distance. The data (position, heading, altitude, armed state)
+is already received over MAVLink and cached by both drivers, so verifying costs
+nothing. The floors exist because 10 % of a 2 m move is below GPS noise.
+
+*Where.* ``dyodrone/core/expect.py``, ``dyodrone/core/plan_runner.py``,
+``DroneController.telemetry()``.
+
+Plans stop at the first failure and never land on their own
+-----------------------------------------------------------
+
+*Decision.* A rejected command, a timed-out step or missing telemetry stops the plan;
+the vehicle keeps hovering. Landing is always an explicit step or **Land now**.
+
+*Why.* Continuing after a step that did not complete would fly the rest of the plan
+from the wrong place; landing automatically in an unknown situation is a decision the
+operator, not the software, should make.
+
+Input types are independent switches, with a lock and an override
+-----------------------------------------------------------------
+
+*Decision.* Console, Plan and Voice are separate runtime switches. While a plan runs,
+console and voice commands are refused. **Land now** bypasses switches and the lock.
+
+*Why.* Mixing a manual command into a running plan invalidates the expected positions
+it is checking. But an emergency must never be blocked by a mode, so one action ignores
+every rule and also stops the plan and drops pending voice commands.
+
+*Where.* ``dyodrone/gui/session.py`` (``set_inputs``, ``submit``, ``emergency_land``).
+
+Offline voice with a restricted vocabulary and a cancel window
+--------------------------------------------------------------
+
+*Decision.* Voice uses Vosk on the server, limited to the console keywords and number
+words; recognised commands wait 2 s (cancellable) before running, except ``land``.
+
+*Why.* Offline keeps audio on the machine and works without network. A restricted
+grammar is far more accurate than open dictation for a dozen words. Speech is
+unreliable, so a mis-heard ``forward fifty`` must be stoppable before it flies;
+``land`` is the one command where a delay is worse than a false positive. Splitting
+"words" (engine) from "commands" (``core/voice.py``) keeps the grammar testable
+without audio.
+
+*Where.* ``dyodrone/core/voice.py``, ``dyodrone/gui/voice_engine.py``, ``dyodrone/gui/session.py``.
+
+The browser sends raw PCM, not a stream API
+-------------------------------------------
+
+*Decision.* The page captures the microphone, converts to 16 kHz PCM16 in JavaScript,
+and POSTs ~0.25 s chunks to ``/api/voice/audio``.
+
+*Why.* The server is standard-library ``http.server`` with no WebSockets; plain POSTs
+reuse the existing token/Host/Origin checks and keep the dependency list unchanged.

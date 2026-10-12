@@ -90,6 +90,28 @@ DroneKit and ``dronekit_sitl`` are mocked by ``docs/conf.py``
 (``autodoc_mock_imports``), so the Python 3.7 stack is not needed to build the
 docs.
 
+Voice — optional extra
+----------------------
+
+``pip install -e ".[dyopilot,voice]"``
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 12 64
+
+   * - Package
+     - Pin
+     - Why it is there
+   * - ``vosk``
+     - >=0.3.44
+     - Offline speech recognition for the web console's voice mode. Optional: the
+       rest of the project never imports it.
+
+Vosk's model is not a Python package: ``vosk-model-small-en-us-0.15`` (about 40 MB) is
+downloaded once, on first use, to ``~/.cache/dyodrone/vosk`` (``DYODRONE_CACHE``
+moves it, ``--vosk-model`` points at an existing copy). Python 3.7 support for
+the extra is best effort; voice is developed and tested on 3.12.
+
 Test environment
 ----------------
 

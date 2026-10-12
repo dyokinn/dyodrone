@@ -25,6 +25,10 @@ package; the *extra* you choose decides which libraries come with it.
      - either
      - add ``,test``, e.g. ``".[dyopilot,test]"``
      - —
+   * - Voice
+     - 3.12+
+     - add ``,voice``, e.g. ``".[dyopilot,voice]"`` (installs ``vosk``)
+     - — (only for voice mode in the web console)
    * - Docs
      - 3.12+
      - ``pip install -e ".[docs]"``
@@ -77,6 +81,16 @@ packages:
    dyodrone-gui        # opens http://127.0.0.1:8765/?token=…
 
 See :doc:`../entry_points/dyodrone_gui`.
+
+Voice mode
+----------
+
+.. code-block:: bash
+
+   pip install -e ".[dyopilot,voice]"
+   dyodrone-gui          # switch Voice on; the speech model downloads once (~40 MB)
+
+See :doc:`voice`.
 
 Running the tests and building the docs
 ---------------------------------------

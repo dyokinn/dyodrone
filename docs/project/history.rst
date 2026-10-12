@@ -8,6 +8,17 @@ Unreleased
 
 *Working tree on top of* ``48f2ccf``.
 
+* **Flight plans.** Plain-text plans (one console command per line, ``#`` comments,
+  optional ``wait``) run closed-loop: each step is verified from MAVLink telemetry
+  every 3 s against its expected end state (10 % margin) before the next starts.
+  ``dyodrone-plan`` runs them with no UI; the web console has a plan panel,
+  recording from the session log, upload and download.
+* **Voice.** Offline speech recognition (Vosk, optional ``voice`` extra) sliced into
+  commands with exactly the console keywords; recognised commands wait a cancellable
+  2 s, ``land`` runs at once.
+* **Runtime input switches.** Console / Plan / Voice can be turned on and off while
+  the web console runs; plans lock the other inputs; **Land now** overrides everything.
+* **Telemetry.** ``DroneController.telemetry()`` for both drivers.
 * **Package.** Code moved into ``src/dyodrone`` and is installed with
   ``pip install -e ".[dronekit]"`` or ``".[dyopilot]"``. ``dyodrone-cli``,
   ``dyodrone-gui`` and ``python -m dyodrone`` replace the ``entry_points/``

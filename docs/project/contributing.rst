@@ -49,6 +49,16 @@ Adding a driver
 #. Tests (a fake connection like ``tests/fakes.py`` for the unit tests, an opt-in
    ``sitl`` test) and docs (:doc:`../api/index`, :doc:`design_decisions`).
 
+Adding a plan step or voice keyword
+-----------------------------------
+
+A new command usable in plans needs: its parsing rule in ``core/plan.py``
+(``NUMERIC_VERBS`` or ``BARE_VERBS``), an expectation in ``core/expect.py``
+(``expected_after`` and ``describe_step``) so the runner can tell when it has
+finished, and execution in ``handle_command``. A new voice keyword additionally goes
+into ``core/voice.py`` (``KEYWORDS`` and, if it takes a number, the slicing rules).
+Add margin-boundary tests alongside the existing ones.
+
 Conventions used in the code
 ----------------------------
 
