@@ -132,6 +132,18 @@
   #plan-msg.bad { color: var(--bad); }
   section.off .planbar, section.off .planrun, section.off #plan-text { opacity: .45; pointer-events: none; }
   .hint { padding: 8px 14px 0; color: var(--muted); font-size: 12px; }
+  .ln.voice { color: #b48ead; }
+  .ln.plan { color: var(--text); }
+  #voice-status { padding: 10px 14px 0; font: 12px var(--mono); color: var(--muted); }
+  #voice-status.live { color: var(--ok); } #voice-status.bad { color: var(--bad); }
+  #voice-status.live::before { content: "● "; animation: pulse 1.2s infinite; }
+  #voice-partial { padding: 4px 14px 0; min-height: 1.4em; font: italic 13px var(--mono); color: var(--accent); }
+  #voice-pending { list-style: none; margin: 0; padding: 4px 14px 0; font: 12px var(--mono); }
+  #voice-pending li { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  #voice-pending .cmd { flex: 1; } #voice-pending .t { color: var(--warn); }
+  #voice-panel .planrun { padding-top: 6px; }
+  section.off #voice-status, section.off #voice-partial, section.off #voice-pending, section.off .voicehelp { opacity: .45; }
+  .voicehelp { padding: 0 14px 12px; color: var(--muted); font: 11px var(--mono); }
   @media (max-width: 860px) {
     main { grid-template-columns: 1fr; grid-auto-rows: minmax(320px, auto); }
     #conn { width: 100%; } .field { flex: 1 1 200px; } .spacer { display: none; }
@@ -181,6 +193,14 @@
     <section aria-label="Connection">
       <h2>Connection</h2>
       <div id="details"><div class="empty">—</div></div>
+    </section>
+    <section aria-label="Voice" id="voice-panel" class="off">
+      <h2>Voice</h2>
+      <div id="voice-status">Voice input is off.</div>
+      <div id="voice-partial" aria-live="polite"></div>
+      <ul id="voice-pending"></ul>
+      <div class="planrun"><button type="button" class="small secondary" id="voice-cancel-all" disabled>Cancel all</button></div>
+      <div class="voicehelp">Say: takeoff ten · altitude fifteen · forward five · back five · left ninety · right ninety · land. Commands run after a short cancel window; land runs at once.</div>
     </section>
     <section aria-label="Flight plan" id="plan-panel" class="off">
       <h2>Flight plan</h2>
@@ -284,6 +304,7 @@
     document.querySelectorAll("#chips button").forEach(function (b) { b.disabled = !typing; });
     renderInputs(s);
     renderPlan(s);
+    renderVoice(s);
     $("busy").textContent = s.busy ? "running: " + s.busy + (s.queued ? "  (+" + s.queued + " queued)" : "") + " …" : "";
     rows($("vehicle"), s.telemetry, s.status === "connected" ? "Waiting for telemetry…" : "Not connected.");
     rows($("details"), s.details, "—");
@@ -422,6 +443,91 @@
     r.onload = function () { $("plan-text").value = String(r.result); planMessage("Loaded " + f.name, false); validatePlan(); };
     r.readAsText(f); ev.target.value = "";
   });
+
+  // ---- voice: microphone capture (16 kHz mono PCM16 chunks -> server) -------------------------------
+  var micError = "";
+  var mic = { running: false, stream: null, ctx: null, src: null, node: null, chain: Promise.resolve(), backlog: 0 };
+
+  function voiceStatus(text, cls) { var el = $("voice-status"); el.textContent = text; el.className = cls || ""; }
+
+  function downsample(buf, rate) {
+    var target = 16000, ratio = rate / target, len = Math.floor(buf.length / ratio), out = new Int16Array(len);
+    for (var i = 0; i < len; i++) {
+      var start = Math.floor(i * ratio), end = Math.min(buf.length, Math.floor((i + 1) * ratio)), sum = 0;
+      for (var j = start; j < end; j++) sum += buf[j];
+      var v = Math.max(-1, Math.min(1, sum / Math.max(1, end - start)));
+      out[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    return out;
+  }
+
+  function sendAudio(int16) {
+    if (mic.backlog > 8) return;  // drop audio rather than fall behind
+    mic.backlog++;
+    var body = int16.buffer;
+    mic.chain = mic.chain.then(function () {
+      return fetch("/api/voice/audio", { method: "POST", headers: { "X-Token": token, "Content-Type": "application/octet-stream" }, body: body });
+    }).catch(function () {}).then(function () { mic.backlog--; });
+  }
+
+  function startMic() {
+    if (mic.running) return;
+    mic.running = true; micError = "";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      mic.running = false; micError = "This page cannot use the microphone (it needs localhost or https).";
+      api("/api/inputs", { voice: false }).then(poll); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+      if (!mic.running) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
+      var src = ctx.createMediaStreamSource(stream);
+      // ScriptProcessor is deprecated but works everywhere without a separate worklet file.
+      var node = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain();
+      mute.gain.value = 0;
+      node.onaudioprocess = function (e) { sendAudio(downsample(e.inputBuffer.getChannelData(0), ctx.sampleRate)); };
+      src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+      mic.stream = stream; mic.ctx = ctx; mic.src = src; mic.node = node;
+    }).catch(function (e) {
+      mic.running = false; micError = "Microphone unavailable: " + (e.message || e.name) + ". Allow microphone access for this page and switch Voice on again.";
+      api("/api/inputs", { voice: false }).then(poll);
+    });
+  }
+
+  function stopMic() {
+    mic.running = false;
+    if (mic.node) { mic.node.onaudioprocess = null; mic.node.disconnect(); }
+    if (mic.src) mic.src.disconnect();
+    if (mic.ctx) mic.ctx.close();
+    if (mic.stream) mic.stream.getTracks().forEach(function (t) { t.stop(); });
+    mic.node = mic.src = mic.ctx = mic.stream = null;
+  }
+
+  function renderVoice(s) {
+    var v = s.voice, on = s.inputs.voice;
+    $("voice-panel").classList.toggle("off", !on);
+    if (!on) {
+      voiceStatus(micError || (v.status === "error" && v.message ? "Voice unavailable: " + v.message : "Voice input is off."), micError || v.status === "error" ? "bad" : "");
+    } else if (v.status === "loading") {
+      voiceStatus(v.message || "Loading the speech model …");
+    } else if (v.status === "listening") {
+      voiceStatus(mic.running && mic.stream ? "Listening" : "Starting the microphone …", mic.running && mic.stream ? "live" : "");
+    }
+    $("voice-partial").textContent = on && v.partial ? "“" + v.partial + "”" : "";
+    var ul = $("voice-pending"); ul.textContent = "";
+    v.pending.forEach(function (p) {
+      var li = document.createElement("li"), c = document.createElement("span"), t = document.createElement("span"), b = document.createElement("button");
+      c.className = "cmd"; c.textContent = p.command;
+      t.className = "t"; t.textContent = p.remaining.toFixed(1) + " s";
+      b.type = "button"; b.className = "small secondary"; b.textContent = "Cancel";
+      b.addEventListener("click", function () { api("/api/voice/cancel", { id: p.id }).then(poll).catch(function () { poll(); }); });
+      li.appendChild(c); li.appendChild(t); li.appendChild(b); ul.appendChild(li);
+    });
+    $("voice-cancel-all").disabled = !v.pending.length;
+    var wantMic = on && v.status === "listening";
+    if (wantMic && !mic.running) startMic(); else if (!wantMic && mic.running) stopMic();
+  }
+
+  $("voice-cancel-all").addEventListener("click", function () { api("/api/voice/cancel", {}).then(poll).catch(function () { poll(); }); });
 
   applyMode(); poll(); setInterval(poll, 1000); cmdEl.focus();
 })();

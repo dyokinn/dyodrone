@@ -36,6 +36,10 @@ docs = [
     "furo==2025.12.19",
     "pymavlink==2.4.49",
 ]
+# Offline speech recognition for the web console's voice mode.
+voice = [
+    "vosk>=0.3.44",
+]
 test = [
     "pytest>=7.4,<9",
 ]
@@ -53,7 +57,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -m 'not sitl and not docs'"
+addopts = "-ra -m 'not sitl and not docs and not voice'"
 filterwarnings = [
     # Sphinx 9.x napoleon uses its own deprecated option mapping.
     "ignore:The mapping interface for autodoc options",
@@ -67,4 +71,5 @@ markers = [
     "docs: builds the Sphinx documentation (opt in with -m docs)",
     "dronekit: needs DroneKit, i.e. the Python 3.7 environment",
     "dyopilot: needs pymavlink",
+    "voice: needs the vosk package and speech model (opt in with -m voice)",
 ]

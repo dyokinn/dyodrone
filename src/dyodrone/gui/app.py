@@ -41,6 +41,10 @@ def parse_args() -> argparse.Namespace:
                         help="Flight plans: allowed error as a fraction of the commanded amount (default 0.10).")
     parser.add_argument("--plan-timeout", type=float, default=120.0, metavar="SECONDS",
                         help="Flight plans: fail a step not completed this long after it was sent (default 120).")
+    parser.add_argument("--voice-delay", type=float, default=2.0, metavar="SECONDS",
+                        help="Voice: seconds a recognised command waits, cancellable, before it runs (default 2; land is immediate).")
+    parser.add_argument("--vosk-model", default=None, metavar="FOLDER",
+                        help="Voice: unpacked Vosk model folder (default: download vosk-model-small-en-us once to ~/.cache/dyodrone).")
     parser.add_argument("--no-browser", action="store_true", help="Print the URL instead of opening a browser.")
     return parser.parse_args()
 
@@ -53,6 +57,8 @@ def main() -> int:
         plan_poll=args.plan_poll,
         plan_margin=args.plan_margin,
         plan_step_timeout=args.plan_timeout,
+        voice_delay=args.voice_delay,
+        vosk_model=args.vosk_model,
     )
     try:
         server = ConsoleServer((args.host, args.port), session)

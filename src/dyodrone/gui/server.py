@@ -22,6 +22,7 @@ from dyodrone.gui.session import ConsoleSession, SessionError
 
 _INDEX = Path(__file__).resolve().parent / "static" / "index.html"
 _MAX_BODY = 64 * 1024
+_MAX_AUDIO = 128 * 1024  # one audio chunk is ~8 KB; this is generous
 
 
 class ConsoleServer(ThreadingHTTPServer):
@@ -73,6 +74,12 @@ class _Handler(BaseHTTPRequestHandler):
         token = self.headers.get("X-Token", "")
         return secrets.compare_digest(token.encode(), self.server.token.encode())
 
+    def _raw_body(self, limit: int) -> bytes:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > limit:
+            raise ValueError("Request body too large")
+        return self.rfile.read(length) if length else b""
+
     def _body(self) -> Dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
         if length > _MAX_BODY:
@@ -119,6 +126,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         session = self.server.session
         try:
+            if path == "/api/voice/audio":
+                result = session.voice_audio(self._raw_body(_MAX_AUDIO))
+                self._json(HTTPStatus.OK, dict(result, ok=True))
+                return
             body = self._body()
             if path == "/api/connect":
                 gcs_port = body.get("gcs_port")
@@ -133,6 +144,9 @@ class _Handler(BaseHTTPRequestHandler):
                 session.submit(str(body.get("line", "")))
             elif path == "/api/inputs":
                 session.set_inputs(**body)
+            elif path == "/api/voice/cancel":
+                pending_id = body.get("id")
+                session.voice_cancel(int(pending_id) if pending_id is not None else None)
             elif path == "/api/emergency":
                 session.emergency_land()
             elif path == "/api/plan":

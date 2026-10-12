@@ -18,6 +18,9 @@ and no ``sys.path`` tricks.
    * - ``dyodrone-gui``
      - Browser console: live vehicle info, command prompt, Simulator/Pixhawk toggle
      - :doc:`dyodrone_gui`
+   * - ``dyodrone-plan``
+     - Runs a flight-plan text file with no UI (closed-loop, verified by telemetry)
+     - :doc:`dyodrone_plan`
    * - ``runners/*.sh``
      - Scripts to build the docs, run all tests, and launch the web console (they call tox / the console script)
      - :doc:`runners`
@@ -34,7 +37,7 @@ Repository layout
    ├── src/dyodrone/
    │   ├── core/                      ← controller ABC, commands, targets, GCS proxy, factory
    │   ├── drivers/                   ← dronekit_driver (Python 3.7), dyopilot_driver + reader (pymavlink)
-   │   ├── cli.py                     ← dyodrone-cli
+   │   ├── cli.py, plan_cli.py        ← dyodrone-cli, dyodrone-plan
    │   └── gui/                       ← dyodrone-gui: session, HTTP server, static page
    ├── tests/                         ← pytest suite, one folder per layer
    └── docs/                          ← this documentation (Sphinx + Furo)
@@ -60,4 +63,5 @@ Once installed, the commands work from any directory:
 
    dyodrone_cli
    dyodrone_gui
+   dyodrone_plan
    runners

@@ -9,6 +9,8 @@ fix common problems.
 
    installation
    how
+   plans
+   voice
    arch
    proxy
    troubleshooting

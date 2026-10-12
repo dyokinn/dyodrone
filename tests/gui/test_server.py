@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+from types import SimpleNamespace
 
 import pytest
 from fakes import FakeController, wait_for
@@ -221,3 +222,82 @@ def test_history_endpoint_requires_the_token_and_returns_plan_text(stack):
 def test_new_endpoints_are_behind_the_same_authorization(stack, path):
     assert stack.request("POST", path, {}, token="wrong")[0] == 403
     assert stack.request("POST", path, {}, headers={"Origin": "http://evil.example"})[0] == 403
+
+
+# -- voice endpoints ---------------------------------------------------------
+
+
+@pytest.fixture
+def vstack(monkeypatch):
+    from fakes import FakeEngine, FakeTimer
+    from dyodrone.gui.voice_engine import SpeechResult
+
+    FakeTimer.created = []
+    engine = FakeEngine()
+    monkeypatch.setattr(session_module, "create_controller", lambda *a, **k: FakeController())
+    session = ConsoleSession("dyopilot", engine_factory=lambda p: engine, timer_factory=FakeTimer)
+    server = ConsoleServer(("127.0.0.1", 0), session, token=TOKEN)
+    threading.Thread(target=lambda: server.serve_forever(poll_interval=0.02), daemon=True).start()
+    port = server.server_address[1]
+
+    def post(path, data, headers=None, content_type="application/octet-stream"):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        hdrs = {"X-Token": TOKEN, "Content-Type": content_type}
+        hdrs.update(headers or {})
+        conn.request("POST", path, body=data, headers=hdrs)
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return resp.status, body
+
+    def state():
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/api/state", headers={"X-Token": TOKEN})
+        out = json.loads(conn.getresponse().read().decode())
+        conn.close()
+        return out
+
+    yield SimpleNamespace(post=post, state=state, session=session, engine=engine, SpeechResult=SpeechResult, timers=FakeTimer.created)
+    server.shutdown()
+    server.server_close()
+    session.close()
+
+
+def test_audio_is_refused_until_voice_is_on_and_ready(vstack):
+    assert vstack.post("/api/voice/audio", b"\0\0")[0] == 409
+    vstack.session.set_inputs(voice=True)
+    assert wait_for(lambda: vstack.state()["voice"]["status"] == "listening")
+    status, body = vstack.post("/api/voice/audio", b"\0\0")
+    assert status == 200 and json.loads(body.decode())["status"] == "listening"
+    assert vstack.engine.chunks == [b"\0\0"]
+
+
+def test_audio_results_show_up_as_partials_and_pending_commands(vstack):
+    vstack.session.set_inputs(voice=True)
+    assert wait_for(lambda: vstack.state()["voice"]["status"] == "listening")
+    vstack.engine.script.append(vstack.SpeechResult(partial="takeoff"))
+    assert json.loads(vstack.post("/api/voice/audio", b"x")[1].decode())["partial"] == "takeoff"
+    vstack.engine.script.append(vstack.SpeechResult(finals=["forward five"]))
+    vstack.post("/api/voice/audio", b"x")
+    assert [p["command"] for p in vstack.state()["voice"]["pending"]] == ["forward 5"]
+
+
+def test_audio_endpoint_requires_authorization_and_limits_size(vstack):
+    vstack.session.set_inputs(voice=True)
+    assert wait_for(lambda: vstack.state()["voice"]["status"] == "listening")
+    assert vstack.post("/api/voice/audio", b"x", headers={"X-Token": "wrong"})[0] == 403
+    assert vstack.post("/api/voice/audio", b"x", headers={"Origin": "http://evil.example"})[0] == 403
+    assert vstack.post("/api/voice/audio", b"\0" * (130 * 1024))[0] == 400
+
+
+def test_cancel_endpoint(vstack):
+    vstack.session.set_inputs(voice=True)
+    assert wait_for(lambda: vstack.state()["voice"]["status"] == "listening")
+    vstack.engine.script.append(vstack.SpeechResult(finals=["forward five back two"]))
+    vstack.post("/api/voice/audio", b"x")
+    pending = vstack.state()["voice"]["pending"]
+    assert vstack.post("/api/voice/cancel", json.dumps({"id": pending[0]["id"]}), content_type="application/json")[0] == 200
+    assert len(vstack.state()["voice"]["pending"]) == 1
+    assert vstack.post("/api/voice/cancel", json.dumps({"id": 99}), content_type="application/json")[0] == 409
+    assert vstack.post("/api/voice/cancel", "{}", content_type="application/json")[0] == 200
+    assert vstack.state()["voice"]["pending"] == []

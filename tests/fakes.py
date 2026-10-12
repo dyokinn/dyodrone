@@ -304,3 +304,44 @@ class FlyingController(FakeController):
             lon=None if self.hide_position else self.lon,
             rel_alt_m=self.alt, yaw_deg=self.yaw, armed=self.armed, mode="GUIDED",
         )
+
+
+class FakeTimer:
+    """Stand-in for ``threading.Timer`` that never fires on its own; tests call ``fire()``."""
+
+    created: List["FakeTimer"] = []
+
+    def __init__(self, interval: float, function: Callable[..., Any], args: Optional[tuple] = None) -> None:
+        self.interval, self.function, self.args = interval, function, args or ()
+        self.started = False
+        self.cancelled = False
+        self.daemon = False
+        FakeTimer.created.append(self)
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def fire(self) -> None:
+        if not self.cancelled:
+            self.function(*self.args)
+
+
+class FakeEngine:
+    """A speech engine that returns scripted results, one per ``accept`` call."""
+
+    def __init__(self) -> None:
+        self.script: List[Any] = []
+        self.chunks: List[bytes] = []
+        self.closed = False
+
+    def accept(self, pcm: bytes):
+        from dyodrone.gui.voice_engine import SpeechResult
+
+        self.chunks.append(pcm)
+        return self.script.pop(0) if self.script else SpeechResult()
+
+    def close(self) -> None:
+        self.closed = True

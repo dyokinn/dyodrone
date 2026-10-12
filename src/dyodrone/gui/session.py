@@ -26,6 +26,7 @@ from dyodrone.core.expect import Tolerances
 from dyodrone.core.plan import RECORDABLE_VERBS, PlanError, format_plan, parse_plan
 from dyodrone.core.plan_runner import PAUSED, RUNNING, PlanEvent, PlanRunner
 from dyodrone.core.targets import TARGETS
+from dyodrone.core.voice import slice_commands
 
 #: Input types that can be switched on and off at runtime.
 INPUTS = ("console", "plan", "voice")
@@ -46,6 +47,17 @@ class SessionError(Exception):
     """An action is not valid in the session's current state (HTTP 409)."""
 
 
+def _vosk_factory(model_path: Optional[str]) -> Callable[[Callable[[str], None]], Any]:
+    """Default speech-engine factory: Vosk, loaded lazily so it stays an optional dependency."""
+
+    def build(progress: Callable[[str], None]) -> Any:
+        from dyodrone.gui.voice_engine import load_vosk_engine
+
+        return load_vosk_engine(model_path, progress)
+
+    return build
+
+
 class ConsoleSession:
     """Owns the controller, the connection state and a capped command log.
 
@@ -60,8 +72,13 @@ class ConsoleSession:
     plan_poll, plan_margin, plan_step_timeout:
         Flight-plan settings: seconds between telemetry checks, allowed error as
         a fraction of the commanded amount, and per-step timeout.
-    clock, sleep:
-        Injectable for tests (used by the plan runner).
+    voice_delay:
+        Seconds a recognised voice command waits (cancellable) before it runs;
+        ``land`` runs at once.
+    vosk_model:
+        Folder of an unpacked Vosk model; downloaded to the cache if omitted.
+    clock, sleep, engine_factory, timer_factory:
+        Injectable for tests (plan runner timing, the speech engine, cancel timers).
     """
 
     def __init__(
@@ -73,6 +90,10 @@ class ConsoleSession:
         plan_step_timeout: float = 120.0,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
+        voice_delay: float = 2.0,
+        vosk_model: Optional[str] = None,
+        engine_factory: Optional[Callable[[Callable[[str], None]], Any]] = None,
+        timer_factory: Callable[..., Any] = threading.Timer,
     ) -> None:
         driver = driver or default_driver()
         if driver not in DRIVERS:
@@ -98,6 +119,17 @@ class ConsoleSession:
         self._plan_text = ""
         self._plan_view: List[Dict[str, Any]] = []
         self._history: List[str] = []
+
+        self._voice_delay = voice_delay
+        self._timer_factory = timer_factory
+        self._engine_factory = engine_factory or _vosk_factory(vosk_model)
+        self._engine: Any = None
+        self._engine_lock = threading.Lock()
+        self._voice_status = "off"  # off | loading | listening | error
+        self._voice_message = ""
+        self._voice_partial = ""
+        self._pending: List[Dict[str, Any]] = []
+        self._next_pending = 1
 
         self._worker = threading.Thread(target=self._run_commands, name="console-commands", daemon=True)
         self._worker.start()
@@ -186,6 +218,7 @@ class ConsoleSession:
                 self._status = DISCONNECTED
                 return
             self._status = DISCONNECTING
+        self._clear_pending("Disconnecting")
         self._stop_plan()
         self._drain_commands()
         threading.Thread(target=self._close_controller, args=(controller,), daemon=True).start()
@@ -203,7 +236,9 @@ class ConsoleSession:
 
     def close(self) -> None:
         """Synchronous disconnect for process shutdown."""
+        self._clear_pending(None)
         self._stop_plan()
+        self._release_engine()
         with self._lock:
             controller = self._controller
             self._controller = None
@@ -302,8 +337,10 @@ class ConsoleSession:
                 continue
             self.inputs[name] = value
             self._add("sys", f"{name.capitalize()} input turned {'on' if value else 'off'}.")
-            if not value and name == "plan":
+            if name == "plan" and not value:
                 self._stop_plan()
+            elif name == "voice":
+                self._start_voice() if value else self._stop_voice()
         return dict(self.inputs)
 
     def emergency_land(self) -> None:
@@ -313,6 +350,7 @@ class ConsoleSession:
         if controller is None:
             raise SessionError("Not connected.")
         self._add("err", "EMERGENCY LAND", "emergency")
+        self._clear_pending("Emergency land")
         self._stop_plan()
         self._drain_commands()
         threading.Thread(target=self._emergency, args=(controller,), daemon=True).start()
@@ -322,6 +360,131 @@ class ConsoleSession:
             self._execute("land", controller, "emergency")
         except Exception as exc:  # noqa: BLE001
             self._add("err", f"Emergency land failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # Voice
+    # ------------------------------------------------------------------
+
+    def _start_voice(self) -> None:
+        with self._lock:
+            if self._voice_status in ("loading", "listening"):
+                return
+            self._voice_status, self._voice_message, self._voice_partial = "loading", "Loading the speech model …", ""
+        threading.Thread(target=self._load_engine, name="voice-load", daemon=True).start()
+
+    def _load_engine(self) -> None:
+        try:
+            engine = self._engine_factory(lambda message: self._add("sys", message))
+        except Exception as exc:  # noqa: BLE001 - any failure leaves voice off with a reason
+            with self._lock:
+                self.inputs["voice"] = False
+                self._voice_status, self._voice_message = "error", str(exc)
+            self._add("err", f"Voice input unavailable: {exc}")
+            return
+        with self._lock:
+            if not self.inputs["voice"]:  # switched off while loading
+                keep = False
+            else:
+                self._engine, self._voice_status, self._voice_message = engine, "listening", ""
+                keep = True
+        if keep:
+            self._add("sys", "Voice input is listening. Say commands like 'takeoff ten', 'forward five', 'land'.")
+        else:
+            self._close_engine(engine)
+
+    def _stop_voice(self) -> None:
+        self._clear_pending(None)
+        self._release_engine()
+        with self._lock:
+            self._voice_status, self._voice_message, self._voice_partial = "off", "", ""
+
+    def _release_engine(self) -> None:
+        with self._lock:
+            engine, self._engine = self._engine, None
+        if engine is not None:
+            self._close_engine(engine)
+
+    @staticmethod
+    def _close_engine(engine: Any) -> None:
+        try:
+            engine.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def voice_audio(self, pcm: bytes) -> Dict[str, Any]:
+        """Feed a chunk of 16 kHz mono PCM16 audio from the page to the speech engine."""
+        with self._lock:
+            if not self.inputs["voice"]:
+                raise SessionError("Voice input is off.")
+            if self._voice_status != "listening" or self._engine is None:
+                raise SessionError("The speech model is still loading." if self._voice_status == "loading" else "Voice input is not ready.")
+            engine = self._engine
+        with self._engine_lock:
+            result = engine.accept(pcm)
+        with self._lock:
+            self._voice_partial = result.partial
+        for text in result.finals:
+            self._on_utterance(text)
+        return {"partial": result.partial, "status": self._voice_status}
+
+    def _on_utterance(self, text: str) -> None:
+        self._add("voice", f'heard: "{text}"')
+        commands, notes = slice_commands(text)
+        for note in notes:
+            self._add("sys", f"voice: {note}")
+        for command in commands:
+            self._queue_voice(command)
+
+    def _queue_voice(self, command: str) -> None:
+        if command.split()[0] == "land":  # never delay a landing
+            self._submit_voice(command)
+            return
+        with self._lock:
+            pending_id = self._next_pending
+            self._next_pending += 1
+            timer = self._timer_factory(self._voice_delay, self._fire_pending, args=(pending_id,))
+            timer.daemon = True
+            self._pending.append({"id": pending_id, "command": command, "due": self._clock() + self._voice_delay, "timer": timer})
+        self._add("voice", f"queued: {command} — runs in {self._voice_delay:g} s unless cancelled", "voice")
+        timer.start()
+
+    def _fire_pending(self, pending_id: int) -> None:
+        with self._lock:
+            entry = next((e for e in self._pending if e["id"] == pending_id), None)
+            if entry is not None:
+                self._pending.remove(entry)
+        if entry is not None:
+            self._submit_voice(entry["command"])
+
+    def _submit_voice(self, command: str) -> None:
+        try:
+            self.submit(command, source="voice")
+        except SessionError as exc:
+            self._add("err", f"voice command '{command}' not run: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            self._add("err", f"voice command '{command}' failed: {exc}")
+
+    def voice_cancel(self, pending_id: Optional[int] = None) -> None:
+        """Cancel one pending voice command, or all of them when *pending_id* is ``None``."""
+        if pending_id is None:
+            self._clear_pending("Cancelled")
+            return
+        with self._lock:
+            entry = next((e for e in self._pending if e["id"] == pending_id), None)
+            if entry is not None:
+                self._pending.remove(entry)
+        if entry is None:
+            raise SessionError("No such pending command (it may already have run).")
+        entry["timer"].cancel()
+        self._add("voice", f"cancelled: {entry['command']}")
+
+    def _clear_pending(self, reason: Optional[str]) -> None:
+        with self._lock:
+            entries, self._pending = self._pending, []
+        for entry in entries:
+            entry["timer"].cancel()
+        if entries and reason:
+            self._add("voice", f"{reason}: dropped {len(entries)} pending voice command(s)")
 
     # ------------------------------------------------------------------
     # Flight plans
@@ -452,6 +615,17 @@ class ConsoleSession:
                 "steps": [dict(v) for v in self._plan_view],
             }
             plan["loaded"] = bool(self._plan_text)
+            now = self._clock()
+            voice = {
+                "status": self._voice_status,
+                "message": self._voice_message,
+                "partial": self._voice_partial,
+                "delay": self._voice_delay,
+                "pending": [
+                    {"id": e["id"], "command": e["command"], "remaining": max(0.0, e["due"] - now)}
+                    for e in self._pending
+                ],
+            }
             return {
                 "driver": self.driver,
                 "python": sys.version.split()[0],
@@ -463,6 +637,7 @@ class ConsoleSession:
                 "queued": self._commands.qsize(),
                 "inputs": dict(self.inputs),
                 "plan": plan,
+                "voice": voice,
                 "history": len(self._history),
                 "telemetry": lines,
                 "details": details,
