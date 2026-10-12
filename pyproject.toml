@@ -53,6 +53,14 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -m 'not sitl and not docs'"
+filterwarnings = [
+    # DroneKit 2.9.2 itself triggers this on Python 3.7; not ours to fix.
+    # Sphinx 9.x napoleon uses its own deprecated option mapping.
+    "ignore:The mapping interface for autodoc options",
+    # pymavlink 2.4.8 (the Python 3.7 pin) uses array.fromstring.
+    "ignore:fromstring\\(\\) is deprecated:DeprecationWarning",
+    "ignore:Using or importing the ABCs from 'collections':DeprecationWarning",
+]
 markers = [
     "sitl: needs a live ArduCopter SITL simulator (opt in with -m sitl)",
     "docs: builds the Sphinx documentation (opt in with -m docs)",
