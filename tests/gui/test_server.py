@@ -155,3 +155,69 @@ def test_malformed_json_is_400(stack):
 
 def test_oversized_bodies_are_rejected(stack):
     assert stack.request("POST", "/api/command", {"line": "x" * 70000})[0] == 400
+
+
+# -- input switches, emergency, plans ----------------------------------------
+
+
+def test_inputs_endpoint_flips_switches_and_state_reports_them(stack):
+    status, _, body = stack.request("POST", "/api/inputs", {"voice": True, "plan": True})
+    assert status == 200
+    assert json_of(stack.request("GET", "/api/state"))["inputs"] == {"console": True, "plan": True, "voice": True}
+    stack.request("POST", "/api/inputs", {"plan": False})
+    assert json_of(stack.request("GET", "/api/state"))["inputs"]["plan"] is False
+
+
+@pytest.mark.parametrize("body", [{"gamepad": True}, {"voice": "yes"}])
+def test_inputs_endpoint_validates(stack, body):
+    assert stack.request("POST", "/api/inputs", body)[0] == 400
+
+
+def test_a_command_from_a_switched_off_console_is_a_conflict(stack):
+    stack.request("POST", "/api/inputs", {"console": False})
+    status, _, body = stack.request("POST", "/api/command", {"line": "help"})
+    assert status == 409 and "Console input is off" in json.loads(body.decode())["error"]
+
+
+def test_emergency_endpoint_needs_a_connection_then_lands(stack):
+    assert stack.request("POST", "/api/emergency", {})[0] == 409
+    stack.request("POST", "/api/connect", {"target": "sitl"})
+    assert wait_for(lambda: json_of(stack.request("GET", "/api/state"))["status"] == "connected")
+    assert stack.request("POST", "/api/emergency", {})[0] == 200
+    assert wait_for(lambda: ("land",) in stack.controller.calls)
+
+
+def test_plan_endpoint_validates_and_returns_steps(stack):
+    status, _, body = stack.request("POST", "/api/plan", {"text": "takeoff 10\nland\n"})
+    assert status == 200
+    assert [s["command"] for s in json.loads(body.decode())["steps"]] == ["takeoff 10", "land"]
+    assert json_of(stack.request("GET", "/api/state"))["plan"]["total"] == 2
+
+
+def test_plan_endpoint_reports_every_error_with_its_line(stack):
+    status, _, body = stack.request("POST", "/api/plan", {"text": "takeoff\nflip 3\nland"})
+    data = json.loads(body.decode())
+    assert status == 400 and [e["line"] for e in data["errors"]] == [1, 2]
+    assert "line 1" in data["error"]
+
+
+def test_plan_run_is_refused_until_the_plan_switch_is_on(stack):
+    stack.request("POST", "/api/plan", {"text": "land"})
+    assert stack.request("POST", "/api/plan/run", {})[0] == 409
+    for action in ("pause", "resume", "stop"):
+        assert stack.request("POST", "/api/plan/" + action, {})[0] == 409
+
+
+def test_history_endpoint_requires_the_token_and_returns_plan_text(stack):
+    assert stack.request("GET", "/api/plan/history", token=None)[0] == 403
+    stack.request("POST", "/api/connect", {"target": "sitl"})
+    assert wait_for(lambda: json_of(stack.request("GET", "/api/state"))["status"] == "connected")
+    stack.request("POST", "/api/command", {"line": "takeoff 10"})
+    assert wait_for(lambda: json_of(stack.request("GET", "/api/plan/history"))["count"] == 1)
+    assert "takeoff 10" in json_of(stack.request("GET", "/api/plan/history"))["text"]
+
+
+@pytest.mark.parametrize("path", ["/api/inputs", "/api/emergency", "/api/plan", "/api/plan/run", "/api/plan/stop"])
+def test_new_endpoints_are_behind_the_same_authorization(stack, path):
+    assert stack.request("POST", path, {}, token="wrong")[0] == 403
+    assert stack.request("POST", path, {}, headers={"Origin": "http://evil.example"})[0] == 403

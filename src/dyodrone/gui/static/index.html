@@ -100,6 +100,38 @@
   dd { margin: 0; word-break: break-word; }
   .empty { padding: 14px; color: var(--muted); font-size: 13px; }
   .good { color: var(--ok); } .bad { color: var(--bad); }
+  .inputsbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px;
+    background: var(--panel-2); border-bottom: 1px solid var(--line);
+  }
+  .inputsbar .lbl { font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .sw {
+    display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 8px; border-radius: 999px;
+    background: var(--panel); color: var(--muted); border: 1px solid var(--line); font: 600 12px var(--mono);
+  }
+  .sw .knob { width: 26px; height: 14px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; }
+  .sw .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+  .sw[aria-checked="true"] { color: var(--text); border-color: var(--accent); }
+  .sw[aria-checked="true"] .knob { background: var(--accent); }
+  .sw[aria-checked="true"] .knob::after { transform: translateX(12px); background: var(--accent-ink); }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; padding: 5px 14px; }
+  .small { padding: 4px 10px; font: 600 12px var(--sans); }
+  .planbar, .planrun { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 0; align-items: center; }
+  .planrun { padding-bottom: 10px; }
+  #plan-text {
+    width: calc(100% - 28px); margin: 10px 14px 0; min-height: 120px; resize: vertical; background: var(--bg);
+    color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 12px/1.5 var(--mono);
+  }
+  #plan-steps { list-style: none; margin: 0; padding: 0 14px 10px; font: 12px var(--mono); }
+  #plan-steps li { display: grid; grid-template-columns: 1.4em 1fr; gap: 0 6px; padding: 3px 0; border-top: 1px dashed var(--line); }
+  #plan-steps li.current { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  #plan-steps .d { grid-column: 2; color: var(--muted); font-size: 11px; word-break: break-word; }
+  #plan-steps .st-done .i { color: var(--ok); } #plan-steps .st-failed { color: var(--bad); }
+  #plan-steps .st-waiting .i, #plan-steps .st-sending .i { color: var(--warn); }
+  #plan-msg { padding: 0 14px 10px; font: 12px var(--mono); color: var(--muted); min-height: 1em; }
+  #plan-msg.bad { color: var(--bad); }
+  section.off .planbar, section.off .planrun, section.off #plan-text { opacity: .45; pointer-events: none; }
+  .hint { padding: 8px 14px 0; color: var(--muted); font-size: 12px; }
   @media (max-width: 860px) {
     main { grid-template-columns: 1fr; grid-auto-rows: minmax(320px, auto); }
     #conn { width: 100%; } .field { flex: 1 1 200px; } .spacer { display: none; }
@@ -122,6 +154,14 @@
     <button id="toggle" disabled>Connect</button>
   </div>
 </header>
+<div class="inputsbar" role="group" aria-label="Input types">
+  <span class="lbl">Inputs</span>
+  <button type="button" class="sw" id="sw-console" role="switch" aria-checked="true" title="Type commands at the console prompt"><span class="knob"></span>Console</button>
+  <button type="button" class="sw" id="sw-plan" role="switch" aria-checked="false" title="Run flight plans"><span class="knob"></span>Plan</button>
+  <button type="button" class="sw" id="sw-voice" role="switch" aria-checked="false" title="Voice commands"><span class="knob"></span>Voice</button>
+  <span class="spacer"></span>
+  <button type="button" class="danger" id="land-now" disabled title="Stops any plan and lands immediately, whatever the switches say">Land now</button>
+</div>
 <main>
   <section aria-label="Console">
     <h2>Console</h2>
@@ -141,6 +181,24 @@
     <section aria-label="Connection">
       <h2>Connection</h2>
       <div id="details"><div class="empty">—</div></div>
+    </section>
+    <section aria-label="Flight plan" id="plan-panel" class="off">
+      <h2>Flight plan</h2>
+      <div class="planbar">
+        <label class="small secondary" style="cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:4px 10px;color:var(--text)">Upload .txt<input type="file" id="plan-file" accept=".txt,text/plain" hidden></label>
+        <button type="button" class="small secondary" id="plan-log" title="Fill with the commands you ran successfully this session">From log</button>
+        <button type="button" class="small secondary" id="plan-dl">Download</button>
+        <button type="button" class="small secondary" id="plan-validate">Validate</button>
+      </div>
+      <textarea id="plan-text" spellcheck="false" aria-label="Flight plan text" placeholder="# one command per line&#10;takeoff 10&#10;forward 20&#10;right 90&#10;land"></textarea>
+      <div class="planrun">
+        <button type="button" class="small" id="plan-run" disabled>Run</button>
+        <button type="button" class="small secondary" id="plan-pause" disabled>Pause</button>
+        <button type="button" class="small secondary" id="plan-stop" disabled>Stop</button>
+        <span id="plan-state" class="hint" style="padding:0"></span>
+      </div>
+      <div id="plan-msg"></div>
+      <ol id="plan-steps"></ol>
     </section>
   </aside>
 </main>
@@ -162,7 +220,7 @@
     var opts = { headers: { "X-Token": token } };
     if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
     return fetch(path, opts).then(function (r) {
-      return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || r.statusText); e.status = r.status; throw e; } return j; });
+      return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || r.statusText); e.status = r.status; e.errors = j.errors; throw e; } return j; });
     });
   }
 
@@ -219,7 +277,13 @@
     toggleBtn.disabled = s.status === "connecting" || s.status === "disconnecting";
     toggleBtn.textContent = s.status === "connected" ? "Disconnect" : s.status === "connecting" ? "Connecting…" : s.status === "disconnecting" ? "Disconnecting…" : "Connect";
     toggleBtn.className = s.status === "connected" ? "secondary" : "";
-    cmdEl.disabled = false;
+    var locked_plan = s.plan && (s.plan.state === "running" || s.plan.state === "paused");
+    var typing = s.inputs.console && !locked_plan;
+    cmdEl.disabled = !typing;
+    cmdEl.placeholder = !s.inputs.console ? "Console input is off" : locked_plan ? "Locked while a flight plan runs" : "help";
+    document.querySelectorAll("#chips button").forEach(function (b) { b.disabled = !typing; });
+    renderInputs(s);
+    renderPlan(s);
     $("busy").textContent = s.busy ? "running: " + s.busy + (s.queued ? "  (+" + s.queued + " queued)" : "") + " …" : "";
     rows($("vehicle"), s.telemetry, s.status === "connected" ? "Waiting for telemetry…" : "Not connected.");
     rows($("details"), s.details, "—");
@@ -272,6 +336,91 @@
     b.title = "Fill the prompt (press Enter to send)";
     b.addEventListener("click", function () { cmdEl.value = c; cmdEl.focus(); });
     $("chips").appendChild(b);
+  });
+
+  var inputsState = { console: true, plan: false, voice: false };
+  var planDirty = false, lastPlanState = "idle";
+
+  function renderInputs(s) {
+    inputsState = s.inputs;
+    ["console", "plan", "voice"].forEach(function (k) { $("sw-" + k).setAttribute("aria-checked", s.inputs[k] ? "true" : "false"); });
+    $("land-now").disabled = s.status !== "connected";
+  }
+
+  var ICON = { pending: "○", sending: "…", waiting: "◔", done: "✓", failed: "✗" };
+
+  function renderPlan(s) {
+    var plan = s.plan, on = s.inputs.plan, running = plan.state === "running", paused = plan.state === "paused";
+    $("plan-panel").classList.toggle("off", !on);
+    $("plan-text").readOnly = running || paused;
+    $("plan-run").disabled = !(on && s.status === "connected" && !running && !paused);
+    $("plan-pause").disabled = !(running || paused);
+    $("plan-pause").textContent = paused ? "Resume" : "Pause";
+    $("plan-stop").disabled = !(running || paused);
+    $("plan-log").textContent = s.history ? "From log (" + s.history + ")" : "From log";
+    $("plan-state").textContent = plan.total ? plan.state + (plan.index >= 0 ? " · step " + (plan.index + 1) + "/" + plan.total : "") : "";
+    if (plan.message && (plan.state === "failed" || plan.state === "stopped" || plan.state === "done")) {
+      $("plan-msg").textContent = plan.message; $("plan-msg").className = plan.state === "failed" ? "bad" : "";
+    } else if (plan.state !== lastPlanState && plan.state === "running") { $("plan-msg").textContent = ""; }
+    lastPlanState = plan.state;
+    var ol = $("plan-steps"); ol.textContent = "";
+    plan.steps.forEach(function (st, i) {
+      var li = document.createElement("li"); li.className = "st-" + st.state + (i === plan.index && (running || paused) ? " current" : "");
+      var ic = document.createElement("span"); ic.className = "i"; ic.textContent = ICON[st.state] || "○";
+      var tx = document.createElement("span"); tx.textContent = st.command;
+      li.appendChild(ic); li.appendChild(tx);
+      if (st.detail) { var d = document.createElement("span"); d.className = "d"; d.textContent = st.detail; li.appendChild(d); }
+      ol.appendChild(li);
+    });
+  }
+
+  function planMessage(text, bad) { $("plan-msg").textContent = text; $("plan-msg").className = bad ? "bad" : ""; }
+
+  function validatePlan() {
+    return api("/api/plan", { text: $("plan-text").value }).then(function (r) {
+      planMessage(r.steps.length + " steps OK", false); return true;
+    }).catch(function (e) {
+      var detail = e.errors ? e.errors.map(function (x) { return (x.line ? "line " + x.line + ": " : "") + x.message; }).join("\n") : e.message;
+      planMessage(detail, true); return false;
+    }).then(function (ok) { poll(); return ok; });
+  }
+
+  ["console", "plan", "voice"].forEach(function (k) {
+    $("sw-" + k).addEventListener("click", function () {
+      var body = {}; body[k] = !inputsState[k];
+      api("/api/inputs", body).then(poll).catch(function (e) { addLine("err", e.message); });
+    });
+  });
+  $("land-now").addEventListener("click", function () {
+    api("/api/emergency", {}).then(poll).catch(function (e) { addLine("err", e.message); });
+  });
+  $("plan-validate").addEventListener("click", validatePlan);
+  $("plan-run").addEventListener("click", function () {
+    validatePlan().then(function (ok) {
+      if (!ok) return;
+      api("/api/plan/run", {}).then(poll).catch(function (e) { planMessage(e.message, true); });
+    });
+  });
+  $("plan-pause").addEventListener("click", function () {
+    api("/api/plan/" + ($("plan-pause").textContent === "Resume" ? "resume" : "pause"), {}).then(poll).catch(function (e) { planMessage(e.message, true); });
+  });
+  $("plan-stop").addEventListener("click", function () { api("/api/plan/stop", {}).then(poll).catch(function (e) { planMessage(e.message, true); }); });
+  $("plan-log").addEventListener("click", function () {
+    api("/api/plan/history").then(function (r) {
+      if (!r.text) { planMessage("Nothing recorded yet: run some flight commands first.", true); return; }
+      $("plan-text").value = r.text; planMessage(r.count + " commands loaded from the log", false); validatePlan();
+    }).catch(function (e) { planMessage(e.message, true); });
+  });
+  $("plan-dl").addEventListener("click", function () {
+    var blob = new Blob([$("plan-text").value], { type: "text/plain" });
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "flight-plan.txt";
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  });
+  $("plan-file").addEventListener("change", function (ev) {
+    var f = ev.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { $("plan-text").value = String(r.result); planMessage("Loaded " + f.name, false); validatePlan(); };
+    r.readAsText(f); ev.target.value = "";
   });
 
   applyMode(); poll(); setInterval(poll, 1000); cmdEl.focus();

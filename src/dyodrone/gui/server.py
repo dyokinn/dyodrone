@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
+from dyodrone.core.plan import PlanError
 from dyodrone.gui.session import ConsoleSession, SessionError
 
 _INDEX = Path(__file__).resolve().parent / "static" / "index.html"
@@ -94,6 +95,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.OK, _INDEX.read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/favicon.ico":
             self._send(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
+        elif url.path == "/api/plan/history":
+            if not self._authorized():
+                self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            self._json(HTTPStatus.OK, {"text": self.server.session.history_text(), "count": len(self.server.session._history)})
         elif url.path == "/api/state":
             if not self._authorized():
                 self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
@@ -125,11 +131,33 @@ class _Handler(BaseHTTPRequestHandler):
                 session.disconnect()
             elif path == "/api/command":
                 session.submit(str(body.get("line", "")))
+            elif path == "/api/inputs":
+                session.set_inputs(**body)
+            elif path == "/api/emergency":
+                session.emergency_land()
+            elif path == "/api/plan":
+                steps = session.plan_validate(str(body.get("text", "")))
+                self._json(HTTPStatus.OK, {"ok": True, "steps": steps})
+                return
+            elif path == "/api/plan/run":
+                session.plan_run()
+            elif path == "/api/plan/pause":
+                session.plan_pause()
+            elif path == "/api/plan/resume":
+                session.plan_resume()
+            elif path == "/api/plan/stop":
+                session.plan_stop()
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return
         except SessionError as exc:
             self._json(HTTPStatus.CONFLICT, {"error": str(exc)})
+            return
+        except PlanError as exc:
+            self._json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": str(exc), "errors": [{"line": n, "message": m} for n, m in exc.errors]},
+            )
             return
         except (ValueError, TypeError) as exc:  # includes json.JSONDecodeError
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})

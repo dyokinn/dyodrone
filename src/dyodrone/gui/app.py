@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
             "otherwise. DroneKit only works on Python 3.7 (see docs/guide/how.rst)."
         ),
     )
+    parser.add_argument("--plan-poll", type=float, default=3.0, metavar="SECONDS",
+                        help="Flight plans: seconds between telemetry checks (default 3).")
+    parser.add_argument("--plan-margin", type=float, default=0.10, metavar="FRACTION",
+                        help="Flight plans: allowed error as a fraction of the commanded amount (default 0.10).")
+    parser.add_argument("--plan-timeout", type=float, default=120.0, metavar="SECONDS",
+                        help="Flight plans: fail a step not completed this long after it was sent (default 120).")
     parser.add_argument("--no-browser", action="store_true", help="Print the URL instead of opening a browser.")
     return parser.parse_args()
 
@@ -42,7 +48,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """Start the server, open the browser, and disconnect the vehicle on exit."""
     args = parse_args()
-    session = ConsoleSession(args.driver or default_driver())
+    session = ConsoleSession(
+        args.driver or default_driver(),
+        plan_poll=args.plan_poll,
+        plan_margin=args.plan_margin,
+        plan_step_timeout=args.plan_timeout,
+    )
     try:
         server = ConsoleServer((args.host, args.port), session)
     except OSError as exc:
