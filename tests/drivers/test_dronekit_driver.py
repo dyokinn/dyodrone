@@ -7,6 +7,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+from fakes import FakeTarget
 from marks import needs_dronekit
 
 pytestmark = [needs_dronekit, pytest.mark.dronekit]
@@ -47,31 +48,21 @@ class FakeVehicle:
         self.closed = True
 
 
-def _harness(driver):
-    """_DroneKitBase leaves connect() abstract; tests install a fake vehicle."""
-
-    class Harness(driver._DroneKitBase):
-        def connect(self) -> None:  # pragma: no cover - not used
-            raise NotImplementedError
-
-    return Harness
-
-
 @pytest.fixture
 def ctrl(monkeypatch):
     from dyodrone.drivers import dronekit_driver as driver
 
     monkeypatch.setattr(driver, "time", SimpleNamespace(time=time.time, sleep=lambda _s: None))
-    c = _harness(driver)()
+    c = driver.DroneKitController(FakeTarget())
     c._vehicle = FakeVehicle()
     return c
 
 
 def test_vehicle_property_requires_a_connection():
-    from dyodrone.drivers import dronekit_driver
+    from dyodrone.drivers.dronekit_driver import DroneKitController
 
     with pytest.raises(RuntimeError, match="not been established"):
-        _harness(dronekit_driver)().vehicle
+        DroneKitController(FakeTarget()).vehicle
 
 
 def test_arm_and_takeoff_sets_guided_arms_then_takes_off(ctrl):
@@ -142,3 +133,34 @@ def test_close_closes_the_vehicle(ctrl):
     vehicle = ctrl.vehicle
     ctrl.close()
     assert vehicle.closed and ctrl.active_connection is None
+
+
+def test_connect_acquires_target_connects_and_starts_the_proxy(monkeypatch):
+    from dyodrone.drivers import dronekit_driver as driver
+
+    seen = {}
+    vehicle = FakeVehicle()
+    monkeypatch.setattr(driver, "connect", lambda conn, wait_ready: seen.update(conn=conn, wait=wait_ready) or vehicle)
+    proxy = SimpleNamespace(started=None, gcs_host="127.0.0.1", gcs_port=14550,
+                            start=lambda v: seen.update(started=v), stop=lambda: seen.update(stopped=True))
+    target = FakeTarget("tcp:127.0.0.1:5999")
+    ctrl = driver.DroneKitController(target, proxy)
+    ctrl.connect()
+    assert seen["conn"] == "tcp:127.0.0.1:5999" and seen["wait"] is True and seen["started"] is vehicle
+    assert any("GCS Proxy" in line for line in ctrl.connection_details())
+    ctrl.close()
+    assert vehicle.closed and seen["stopped"] and target.log == ["acquire", "release"]
+
+
+def test_failed_connect_releases_the_target(monkeypatch):
+    from dyodrone.drivers import dronekit_driver as driver
+
+    def refuse(conn, wait_ready):
+        raise ConnectionRefusedError("no vehicle")
+
+    monkeypatch.setattr(driver, "connect", refuse)
+    target = FakeTarget()
+    ctrl = driver.DroneKitController(target)
+    with pytest.raises(ConnectionRefusedError):
+        ctrl.connect()
+    assert target.log == ["acquire", "release"]

@@ -1,10 +1,9 @@
-"""Internal pymavlink base — shared flight logic for SITL and Pixhawk backends.
+"""dyopilot driver — flight logic on raw pymavlink/mavutil.
 
-Not meant to be instantiated directly. Use DyopilotSITLController or
-DyopilotPixhawkController instead. Mirrors drivers/dronekit_driver.py's
-_DroneKitBase, but built on raw pymavlink/mavutil instead of DroneKit's Vehicle
-wrapper — no DroneKit dependency anywhere in this file, which is what lets it
-run on a current Python interpreter instead of the 3.7 DroneKit is pinned to.
+No DroneKit dependency anywhere in this file, which is what lets it run on a
+current Python interpreter instead of the 3.7 DroneKit is pinned to. The
+connection comes from a :class:`~dyodrone.core.targets.Target`, so the same
+controller drives the simulator or a real Pixhawk.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from pymavlink import mavutil
 
 from dyodrone.core.controller import DroneController
 from dyodrone.core.proxy import GCSProxy
+from dyodrone.core.targets import Target
 from dyodrone.drivers.dyopilot_reader import MAVLinkReader
 
 LOG = logging.getLogger(__name__)
@@ -34,14 +34,28 @@ _POSITION_ONLY_TYPEMASK = (
 )
 
 
-class _PyMAVLinkBase(DroneController):
-    """Implements all pymavlink flight operations.
+class DyopilotController(DroneController):
+    """Implements all flight operations on raw pymavlink.
 
-    Subclasses only need to override ``connect()`` (and ``close()`` for
-    backends that own additional resources such as a SITL process).
+    Parameters
+    ----------
+    target:
+        Supplies the connection string (and starts/stops a simulator if needed).
+    proxy:
+        Optional :class:`~dyodrone.core.proxy.GCSProxy` that receives every
+        frame the reader thread parses.
+    heartbeat_timeout:
+        Seconds to wait for the first heartbeat before giving up.
     """
 
-    def __init__(self, *, heartbeat_timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        target: Target,
+        proxy: Optional[GCSProxy] = None,
+        heartbeat_timeout: float = 30.0,
+    ) -> None:
+        self._target = target
+        self._proxy = proxy
         self._heartbeat_timeout = heartbeat_timeout
         self._master: Optional["mavutil.mavfile"] = None
         self._reader: Optional[MAVLinkReader] = None
@@ -57,7 +71,18 @@ class _PyMAVLinkBase(DroneController):
     def active_connection(self) -> Optional[str]:
         return self._active_connection
 
+    def connect(self) -> None:
+        if self._master:
+            return
+        try:
+            self._open_master(self._target.acquire(), proxy=self._proxy)
+        except BaseException:
+            self.close()  # never leave a simulator, thread or socket behind
+            raise
+
     def close(self) -> None:
+        if self._proxy is not None:
+            self._proxy.stop()
         if self._reader is not None:
             self._reader.stop()
             self._reader = None
@@ -65,7 +90,14 @@ class _PyMAVLinkBase(DroneController):
             LOG.info("Closing vehicle connection.")
             self._master.close()
             self._master = None
+        self._target.release()
         self._active_connection = None
+
+    def connection_details(self) -> List[str]:
+        lines = super().connection_details()
+        if self._proxy is not None:
+            lines.append(f"GCS Proxy: → {self._proxy.gcs_host}:{self._proxy.gcs_port}  (QGC ready)")
+        return lines
 
     def status_lines(self) -> List[str]:
         master = self.master

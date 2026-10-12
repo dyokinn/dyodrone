@@ -12,9 +12,10 @@ pytestmark = [pytest.mark.sitl, pytest.mark.dronekit, needs_dronekit]
 
 
 def test_takeoff_land_and_clean_shutdown():
-    from dyodrone.drivers.dronekit_sitl import DronekitSITLController
+    from dyodrone.core.targets import SitlTarget
+    from dyodrone.drivers.dronekit_driver import DroneKitController
 
-    ctrl = DronekitSITLController(gcs_port=None)
+    ctrl = DroneKitController(SitlTarget())
     ctrl.connect()
     try:
         ctrl.arm_and_takeoff(8)

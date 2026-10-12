@@ -1,4 +1,4 @@
-"""Backend selection shared by the console front ends.
+"""Driver and target selection shared by the console front ends.
 
 Both the curses CLI (:mod:`dyodrone.cli`) and the web console
 (:mod:`dyodrone.gui`) build their controller here. It imports no UI toolkit and
@@ -8,93 +8,89 @@ stays compatible with Python 3.7.
 from __future__ import annotations
 
 import sys
-from typing import Dict, List, Optional
+from typing import Optional
 
 from dyodrone.core.controller import DroneController
+from dyodrone.core.proxy import GCSProxy
+from dyodrone.core.targets import TARGETS, make_target
 
-#: All selectable backends, ``<family>-<mode>``.
-BACKENDS: List[str] = [
-    "dronekit-sitl",
-    "dronekit-pixhawk",
-    "dyopilot-sitl",
-    "dyopilot-pixhawk",
-]
+#: Flight-control libraries. ``dronekit`` needs Python 3.7; ``dyopilot`` (raw
+#: pymavlink) runs on current Python.
+DRIVERS = ("dronekit", "dyopilot")
 
-#: Backends whose controllers import DroneKit, which is incompatible with
-#: Python 3.10+. They must run under the Python 3.7 interpreter described in
-#: the ``dronekit`` extra (see docs/guide/installation.rst).
-DRONEKIT_BACKENDS = {"dronekit-sitl", "dronekit-pixhawk"}
+#: Connection string used for the ``pixhawk`` target when none is given.
+DEFAULT_CONNECTION = "tcp:127.0.0.1:5760"
 
-#: Default connection strings used when no connection is given. The two
-#: ``-sitl`` backends self-provision one when they launch their own simulator.
-DEFAULT_CONNECT: Dict[str, str] = {
-    "dronekit-pixhawk": "tcp:127.0.0.1:5760",
-    "dyopilot-pixhawk": "tcp:127.0.0.1:5760",
-}
+#: Default QGroundControl proxy port for the ``sitl`` target.
+DEFAULT_GCS_PORT = 14550
+
 
 class BackendUnavailable(RuntimeError):
-    """The selected backend cannot run in this Python interpreter."""
+    """The selected driver cannot run in this Python interpreter."""
 
 
-def require_python37(backend: str) -> None:
+def default_driver() -> str:
+    """The driver that can run on this interpreter (``dronekit`` only on < 3.10)."""
+    return "dronekit" if sys.version_info < (3, 10) else "dyopilot"
+
+
+def require_python37(driver: str) -> None:
     """Fail fast with an actionable message instead of a raw AttributeError.
 
     DroneKit (``dronekit==2.9.2``) has
     ``class Parameters(collections.MutableMapping, ...)``, and
     ``collections.MutableMapping`` was removed in Python 3.10. Importing
-    ``dronekit`` on 3.10+ crashes immediately, so ``dronekit-*`` backends must
+    ``dronekit`` on 3.10+ crashes immediately, so the ``dronekit`` driver must
     run under the Python 3.7 interpreter.
     """
     if sys.version_info >= (3, 10):
-        raise BackendUnavailable(_python37_message(backend))
+        raise BackendUnavailable(_python37_message(driver))
 
 
-def _python37_message(backend: str) -> str:
+def _python37_message(driver: str) -> str:
     return (
-        f"Backend '{backend}' requires Python 3.7 — DroneKit is incompatible "
+        f"Driver '{driver}' requires Python 3.7 — DroneKit is incompatible "
         "with Python 3.10+. Run it with a 3.7 interpreter "
         "(see docs/guide/how.rst)."
     )
 
 
 def create_controller(
-    backend: str,
+    driver: str,
+    target: str,
     connect: Optional[str] = None,
-    gcs_port: Optional[int] = 14550,
+    gcs_port: Optional[int] = None,
     gcs_host: str = "127.0.0.1",
 ) -> DroneController:
-    """Instantiate the controller for *backend* (one of :data:`BACKENDS`).
+    """Build the controller for *driver* talking to *target*.
 
-    Backend modules are imported lazily inside each branch so that choosing a
-    ``dyopilot-*`` backend never imports DroneKit (see :doc:`/guide/how`).
-    ``gcs_port`` of ``0`` or ``None`` disables the QGroundControl proxy; it and
-    ``gcs_host`` only apply to the ``*-sitl`` backends.
+    ``connect`` is the connection string for the ``pixhawk`` target (default
+    :data:`DEFAULT_CONNECTION`); the ``sitl`` target ignores it. A ``gcs_port``
+    of ``None`` or ``0`` disables the QGroundControl proxy, for either target.
 
-    Raises :class:`BackendUnavailable` if the backend cannot run on this
-    interpreter and :class:`ValueError` for an unknown backend name.
+    Driver modules are imported lazily so that choosing ``dyopilot`` never
+    imports DroneKit (see :doc:`/guide/how`).
+
+    Raises :class:`BackendUnavailable` if the driver cannot run on this
+    interpreter and :class:`ValueError` for an unknown driver or target.
     """
-    connect = connect or DEFAULT_CONNECT.get(backend)
-    gcs_port = gcs_port or None
+    if driver not in DRIVERS:
+        raise ValueError(f"Unknown driver: {driver!r} (expected one of {', '.join(DRIVERS)})")
+    if target not in TARGETS:
+        raise ValueError(f"Unknown target: {target!r} (expected one of {', '.join(TARGETS)})")
 
-    if backend in DRONEKIT_BACKENDS:
-        require_python37(backend)
+    vehicle_target = make_target(target, connect or DEFAULT_CONNECTION)
+    proxy = GCSProxy(gcs_port, gcs_host) if gcs_port else None
+
+    if driver == "dronekit":
+        require_python37(driver)
         try:
-            if backend == "dronekit-sitl":
-                from dyodrone.drivers.dronekit_sitl import DronekitSITLController
+            from dyodrone.drivers.dronekit_driver import DroneKitController
 
-                return DronekitSITLController(gcs_port=gcs_port, gcs_host=gcs_host)
-            from dyodrone.drivers.dronekit_pixhawk import DronekitPixhawkController
-
-            return DronekitPixhawkController(connection=connect)
+            return DroneKitController(vehicle_target, proxy)
         except AttributeError as exc:
-            raise BackendUnavailable(_python37_message(backend)) from exc
+            raise BackendUnavailable(_python37_message(driver)) from exc
 
-    if backend == "dyopilot-sitl":
-        from dyodrone.drivers.dyopilot_sitl import DyopilotSITLController
+    from dyodrone.drivers.dyopilot_driver import DyopilotController
 
-        return DyopilotSITLController(gcs_port=gcs_port, gcs_host=gcs_host)
-    if backend == "dyopilot-pixhawk":
-        from dyodrone.drivers.dyopilot_pixhawk import DyopilotPixhawkController
-
-        return DyopilotPixhawkController(connection=connect)
-    raise ValueError(f"Unknown backend: {backend!r}")
+    return DyopilotController(vehicle_target, proxy)

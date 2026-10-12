@@ -15,7 +15,6 @@ from dyodrone.gui.session import (
     ERROR,
     ConsoleSession,
     SessionError,
-    default_family,
 )
 
 
@@ -28,8 +27,8 @@ def factory(monkeypatch):
         raises = None
         calls = []
 
-        def __call__(self, backend, connect=None, gcs_port=14550, gcs_host="127.0.0.1"):
-            self.calls.append((backend, connect, gcs_port))
+        def __call__(self, driver, target, connect=None, gcs_port=None, gcs_host="127.0.0.1"):
+            self.calls.append((driver, target, connect, gcs_port))
             if self.raises is not None:
                 raise self.raises
             return self.controller
@@ -59,21 +58,23 @@ def connected(s):
 # -- construction ----------------------------------------------------------
 
 
-def test_family_is_validated():
+def test_driver_is_validated():
     with pytest.raises(ValueError):
         ConsoleSession("ardupilot")
 
 
-def test_default_family_follows_the_interpreter(monkeypatch):
-    monkeypatch.setattr(session_module.sys, "version_info", (3, 7, 17))
-    assert default_family() == "dronekit"
-    monkeypatch.setattr(session_module.sys, "version_info", (3, 12, 0))
-    assert default_family() == "dyopilot"
+def test_driver_defaults_to_the_one_for_this_interpreter(monkeypatch):
+    from dyodrone.core import factory
+
+    monkeypatch.setattr(factory.sys, "version_info", (3, 7, 17))
+    assert ConsoleSession().driver == "dronekit"
+    monkeypatch.setattr(factory.sys, "version_info", (3, 12, 0))
+    assert ConsoleSession().driver == "dyopilot"
 
 
 def test_initial_state_is_disconnected_with_a_banner(session):
     snap = session.snapshot()
-    assert snap["status"] == DISCONNECTED and snap["family"] == "dyopilot" and snap["mode"] == "sitl"
+    assert snap["status"] == DISCONNECTED and snap["driver"] == "dyopilot" and snap["target"] == "sitl"
     assert snap["telemetry"] == [] and snap["details"] == []
     assert "Type 'help'" in snap["log"][0]["text"]
 
@@ -83,7 +84,7 @@ def test_initial_state_is_disconnected_with_a_banner(session):
 
 def test_connect_sitl_reaches_connected(session, factory):
     connected(session)
-    assert factory.calls == [("dyopilot-sitl", None, 14550)]
+    assert factory.calls == [("dyopilot", "sitl", "tcp:127.0.0.1:5760", 14550)]
     assert "Connected: fake:0" in texts(session, "sys")
     snap = session.snapshot()
     assert snap["telemetry"][1] == "Mode: GUIDED"
@@ -92,23 +93,23 @@ def test_connect_sitl_reaches_connected(session, factory):
 def test_connect_pixhawk_passes_the_connection_string(session, factory):
     session.connect("pixhawk", "/dev/ttyUSB0")
     assert wait_for(lambda: session.snapshot()["status"] == CONNECTED)
-    assert factory.calls == [("dyopilot-pixhawk", "/dev/ttyUSB0", 14550)]
+    assert factory.calls == [("dyopilot", "pixhawk", "/dev/ttyUSB0", 0)]  # no proxy by default for a real board
     assert session.snapshot()["connection"] == "/dev/ttyUSB0"
 
 
 def test_blank_pixhawk_connection_falls_back_to_the_default(session, factory):
     session.connect("pixhawk", "   ")
     assert wait_for(lambda: session.snapshot()["status"] == CONNECTED)
-    assert factory.calls[0][1] == "tcp:127.0.0.1:5760"
+    assert factory.calls[0][2] == "tcp:127.0.0.1:5760"
 
 
 def test_custom_gcs_port_is_forwarded(session, factory):
     session.connect("sitl", gcs_port=0)
     assert wait_for(lambda: session.snapshot()["status"] == CONNECTED)
-    assert factory.calls[0][2] == 0
+    assert factory.calls[0][3] == 0
 
 
-@pytest.mark.parametrize("kwargs", [{"mode": "warp"}, {"mode": "sitl", "gcs_port": 70000}, {"mode": "sitl", "gcs_port": -1}])
+@pytest.mark.parametrize("kwargs", [{"target": "warp"}, {"target": "sitl", "gcs_port": 70000}, {"target": "sitl", "gcs_port": -1}])
 def test_invalid_connect_arguments_are_rejected(session, kwargs):
     with pytest.raises(ValueError):
         session.connect(**kwargs)

@@ -10,7 +10,8 @@ import pytest
 from fakes import FakeController
 
 from dyodrone import cli
-from dyodrone.core.factory import BACKENDS, BackendUnavailable
+from dyodrone.core import factory
+from dyodrone.core.factory import BackendUnavailable
 
 
 def parse(monkeypatch, *argv):
@@ -20,68 +21,75 @@ def parse(monkeypatch, *argv):
 
 def test_defaults(monkeypatch):
     args = parse(monkeypatch)
-    assert args.backend == "dronekit-sitl"
+    assert args.driver == factory.default_driver() and args.target == "sitl"
     assert (args.connect, args.interval, args.duration) == (None, 2.0, None)
-    assert (args.gcs_port, args.gcs_host) == (14550, "127.0.0.1")
+    assert (args.gcs_port, args.gcs_host) == (None, "127.0.0.1")
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_every_backend_is_selectable(monkeypatch, backend):
-    assert parse(monkeypatch, "--backend", backend).backend == backend
+def test_default_driver_depends_on_the_interpreter(monkeypatch):
+    monkeypatch.setattr(factory.sys, "version_info", (3, 7, 17))
+    assert parse(monkeypatch).driver == "dronekit"
+    monkeypatch.setattr(factory.sys, "version_info", (3, 12, 0))
+    assert parse(monkeypatch).driver == "dyopilot"
 
 
-def test_unknown_backend_is_an_argparse_error(monkeypatch, capsys):
+@pytest.mark.parametrize("driver", ["dronekit", "dyopilot"])
+@pytest.mark.parametrize("target", ["sitl", "pixhawk"])
+def test_every_driver_target_pair_is_selectable(monkeypatch, driver, target):
+    args = parse(monkeypatch, "--driver", driver, "--target", target)
+    assert (args.driver, args.target) == (driver, target)
+
+
+@pytest.mark.parametrize("flag, value", [("--driver", "mavlink"), ("--target", "moon"), ("--backend", "dyopilot-sitl")])
+def test_unknown_choices_and_the_old_flag_are_rejected(monkeypatch, capsys, flag, value):
     with pytest.raises(SystemExit):
-        parse(monkeypatch, "--backend", "mavlink")
-    assert "invalid choice" in capsys.readouterr().err
+        parse(monkeypatch, flag, value)
+    assert capsys.readouterr().err
 
 
 def test_options_are_parsed(monkeypatch):
-    args = parse(monkeypatch, "--connect", "udp:1.2.3.4:14550", "--interval", "0.5", "--duration", "9",
-                 "--gcs-port", "0", "--gcs-host", "10.0.0.5")
+    args = parse(monkeypatch, "--target", "pixhawk", "--connect", "udp:1.2.3.4:14550", "--interval", "0.5",
+                 "--duration", "9", "--gcs-port", "5600", "--gcs-host", "10.0.0.5")
     assert (args.connect, args.interval, args.duration, args.gcs_port, args.gcs_host) == (
-        "udp:1.2.3.4:14550", 0.5, 9.0, 0, "10.0.0.5")
+        "udp:1.2.3.4:14550", 0.5, 9.0, 5600, "10.0.0.5")
 
 
-def test_build_controller_forwards_arguments(monkeypatch):
+@pytest.mark.parametrize(
+    "target, given, expected",
+    [("sitl", None, 14550), ("pixhawk", None, 0), ("sitl", 0, 0), ("pixhawk", 5600, 5600)],
+)
+def test_build_controller_applies_the_proxy_default(monkeypatch, target, given, expected):
     seen = {}
 
-    def fake_create(backend, connect, gcs_port, gcs_host):
-        seen.update(backend=backend, connect=connect, gcs_port=gcs_port, gcs_host=gcs_host)
+    def fake_create(driver, tgt, connect, gcs_port, gcs_host):
+        seen.update(driver=driver, target=tgt, connect=connect, gcs_port=gcs_port, gcs_host=gcs_host)
         return "controller"
 
     monkeypatch.setattr(cli, "create_controller", fake_create)
-    args = parse(monkeypatch, "--backend", "dyopilot-sitl", "--gcs-port", "5600")
-    assert cli.build_controller(args) == "controller"
-    assert seen == {"backend": "dyopilot-sitl", "connect": None, "gcs_port": 5600, "gcs_host": "127.0.0.1"}
+    argv = ["--driver", "dyopilot", "--target", target]
+    if given is not None:
+        argv += ["--gcs-port", str(given)]
+    assert cli.build_controller(parse(monkeypatch, *argv)) == "controller"
+    assert seen == {"driver": "dyopilot", "target": target, "connect": None, "gcs_port": expected, "gcs_host": "127.0.0.1"}
 
 
-def test_unusable_backend_exits_with_the_message(monkeypatch):
+def test_unusable_driver_exits_with_the_message(monkeypatch):
     def unavailable(*_a, **_k):
-        raise BackendUnavailable("Backend 'dronekit-sitl' requires Python 3.7")
+        raise BackendUnavailable("Driver 'dronekit' requires Python 3.7")
 
     monkeypatch.setattr(cli, "create_controller", unavailable)
     with pytest.raises(SystemExit) as info:
-        cli.build_controller(parse(monkeypatch))
+        cli.build_controller(parse(monkeypatch, "--driver", "dronekit"))
     assert "requires Python 3.7" in str(info.value)
 
 
-def test_main_fills_in_the_pixhawk_default_connection(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(cli, "build_controller", lambda args: captured.setdefault("args", args) and FakeController())
-    monkeypatch.setattr(cli, "run_cli", lambda **kw: 0)
-    monkeypatch.setattr(sys, "argv", ["dyodrone-cli", "--backend", "dyopilot-pixhawk"])
+def test_main_builds_runs_and_returns_the_exit_code(monkeypatch):
+    ran = {}
+    monkeypatch.setattr(cli, "build_controller", lambda args: FakeController())
+    monkeypatch.setattr(cli, "run_cli", lambda **kw: ran.update(kw) or 0)
+    monkeypatch.setattr(sys, "argv", ["dyodrone-cli", "--interval", "1.5", "--duration", "3"])
     assert cli.main() == 0
-    assert captured["args"].connect == "tcp:127.0.0.1:5760"
-
-
-def test_main_leaves_sitl_backends_without_a_connection(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(cli, "build_controller", lambda args: captured.setdefault("args", args) and FakeController())
-    monkeypatch.setattr(cli, "run_cli", lambda **kw: 0)
-    monkeypatch.setattr(sys, "argv", ["dyodrone-cli", "--backend", "dyopilot-sitl"])
-    cli.main()
-    assert captured["args"].connect is None
+    assert (ran["interval"], ran["duration"]) == (1.5, 3.0)
 
 
 def test_run_cli_connects_runs_the_ui_and_always_closes(monkeypatch):
@@ -119,10 +127,10 @@ def run(*args):
 
 def test_python_dash_m_runs_the_cli():
     result = run("-m", "dyodrone", "--help")
-    assert result.returncode == 0 and "--backend" in result.stdout
+    assert result.returncode == 0 and "--driver" in result.stdout and "--target" in result.stdout
 
 
-@pytest.mark.parametrize("script, marker", [("dyodrone-cli", "--backend"), ("dyodrone-gui", "--no-browser")])
+@pytest.mark.parametrize("script, marker", [("dyodrone-cli", "--target"), ("dyodrone-gui", "--no-browser")])
 def test_console_scripts_are_installed(script, marker):
     exe = Path(sys.executable).parent / script
     if not exe.exists():

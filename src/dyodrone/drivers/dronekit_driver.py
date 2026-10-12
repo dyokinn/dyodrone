@@ -1,7 +1,8 @@
-"""Internal DroneKit base — shared flight logic for SITL and Pixhawk backends.
+"""DroneKit driver — flight logic on DroneKit's ``Vehicle`` API.
 
-Not meant to be instantiated directly. Use DronekitSITLController or
-DronekitPixhawkController instead.
+Requires Python 3.7: DroneKit 2.9.2 cannot be imported on 3.10+. The connection
+comes from a :class:`~dyodrone.core.targets.Target`, so the same controller
+drives the simulator or a real Pixhawk.
 """
 
 from __future__ import annotations
@@ -15,24 +16,34 @@ from dronekit import LocationGlobalRelative, Vehicle, VehicleMode, connect  # no
 from pymavlink import mavutil
 
 from dyodrone.core.controller import DroneController
+from dyodrone.core.proxy import GCSProxy
+from dyodrone.core.targets import Target
 
 LOG = logging.getLogger(__name__)
 
 
-class _DroneKitBase(DroneController):
-    """Implements all DroneKit flight operations.
+class DroneKitController(DroneController):
+    """Implements all flight operations on top of DroneKit.
 
-    Subclasses only need to override ``connect()`` (and ``close()`` for
-    backends that own additional resources such as a SITL process).
+    Parameters
+    ----------
+    target:
+        Supplies the connection string (and starts/stops a simulator if needed).
+    proxy:
+        Optional :class:`~dyodrone.core.proxy.GCSProxy` that forwards every
+        received frame to QGroundControl.
+    wait_ready:
+        Block in ``connect()`` until the vehicle reports ready.
     """
 
     def __init__(
         self,
-        *,
-        connection: Optional[str] = None,
+        target: Target,
+        proxy: Optional[GCSProxy] = None,
         wait_ready: bool = True,
     ) -> None:
-        self.connection = connection
+        self._target = target
+        self._proxy = proxy
         self.wait_ready = wait_ready
         self._vehicle: Optional[Vehicle] = None
         self._active_connection: Optional[str] = None
@@ -47,12 +58,34 @@ class _DroneKitBase(DroneController):
     def active_connection(self) -> Optional[str]:
         return self._active_connection
 
+    def connect(self) -> None:
+        if self._vehicle:
+            return
+        try:
+            conn = self._target.acquire()
+            self._active_connection = conn
+            self._vehicle = connect(conn, wait_ready=self.wait_ready)
+            if self._proxy is not None:
+                self._proxy.start(self._vehicle)
+        except BaseException:
+            self.close()  # never leave a simulator or socket behind
+            raise
+
     def close(self) -> None:
+        if self._proxy is not None:
+            self._proxy.stop()
         if self._vehicle:
             LOG.info("Closing vehicle connection.")
             self._vehicle.close()
             self._vehicle = None
+        self._target.release()
         self._active_connection = None
+
+    def connection_details(self) -> List[str]:
+        lines = super().connection_details()
+        if self._proxy is not None:
+            lines.append(f"GCS Proxy: → {self._proxy.gcs_host}:{self._proxy.gcs_port}  (QGC ready)")
+        return lines
 
     def status_lines(self) -> List[str]:
         vehicle = self.vehicle

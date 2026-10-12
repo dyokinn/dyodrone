@@ -9,14 +9,15 @@ import sys
 import webbrowser
 
 from dyodrone.gui.server import ConsoleServer
-from dyodrone.gui.session import FAMILIES, ConsoleSession, default_family
+from dyodrone.core.factory import DRIVERS, default_driver
+from dyodrone.gui.session import ConsoleSession
 
 # DroneKit's autopilot logger would otherwise print status lines over the log.
 logging.getLogger("autopilot").disabled = True
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments (bind address, backend family, browser)."""
+    """Parse command-line arguments (bind address, driver, browser)."""
     parser = argparse.ArgumentParser(
         description=(
             "Web console for the drone: live vehicle info, a command prompt, and a "
@@ -26,12 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="Address to bind (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8765, help="Port to serve on (default: 8765, 0 = any free port).")
     parser.add_argument(
-        "--family",
-        choices=FAMILIES,
+        "--driver",
+        choices=DRIVERS,
         default=None,
         help=(
-            "Backend family. Default: dronekit on Python < 3.10, dyopilot otherwise. "
-            "DroneKit only works on Python 3.7 (see docs/guide/how.rst)."
+            "Flight-control library. Default: dronekit on Python < 3.10, dyopilot "
+            "otherwise. DroneKit only works on Python 3.7 (see docs/guide/how.rst)."
         ),
     )
     parser.add_argument("--no-browser", action="store_true", help="Print the URL instead of opening a browser.")
@@ -41,14 +42,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """Start the server, open the browser, and disconnect the vehicle on exit."""
     args = parse_args()
-    session = ConsoleSession(args.family or default_family())
+    session = ConsoleSession(args.driver or default_driver())
     try:
         server = ConsoleServer((args.host, args.port), session)
     except OSError as exc:
         print(f"Cannot listen on {args.host}:{args.port}: {exc}", file=sys.stderr)
         return 1
 
-    print(f"dyodrone web console ({session.family} backends)")
+    print(f"dyodrone web console ({session.driver} driver)")
     print(f"Open: {server.url}")
     print("Press Ctrl+C to stop; the vehicle connection is closed on exit.")
     if args.host not in ("127.0.0.1", "localhost", "::1"):

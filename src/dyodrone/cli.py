@@ -12,11 +12,14 @@ from typing import Any, Optional
 from dyodrone.core.commands import handle_command
 from dyodrone.core.controller import DroneController
 from dyodrone.core.factory import (
-    BACKENDS,
-    DEFAULT_CONNECT,
+    DEFAULT_CONNECTION,
+    DEFAULT_GCS_PORT,
+    DRIVERS,
     BackendUnavailable,
     create_controller,
+    default_driver,
 )
+from dyodrone.core.targets import TARGETS
 
 # Silence autopilot logger that spams the curses console with status lines.
 logging.getLogger("autopilot").disabled = True
@@ -30,24 +33,28 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "--backend",
-        choices=BACKENDS,
-        default="dronekit-sitl",
+        "--driver",
+        choices=DRIVERS,
+        default=default_driver(),
         help=(
-            "Backend to use: dronekit-sitl (default), dronekit-pixhawk, "
-            "dyopilot-sitl, or dyopilot-pixhawk. The dronekit-* backends require "
-            "Python 3.7; the dyopilot-* backends run on a current Python (see "
-            "docs/guide/how.rst)."
+            "Flight-control library: dronekit (Python 3.7 only) or dyopilot "
+            "(pymavlink, current Python). Default for this interpreter: "
+            f"{default_driver()} (see docs/guide/how.rst)."
         ),
+    )
+    parser.add_argument(
+        "--target",
+        choices=TARGETS,
+        default="sitl",
+        help="Vehicle to connect to: sitl (built-in simulator, default) or pixhawk.",
     )
     parser.add_argument(
         "--connect",
         type=str,
         default=None,
         help=(
-            "Vehicle connection string (e.g. /dev/ttyUSB0, tcp:192.168.1.1:5760). "
-            "Defaults to tcp:127.0.0.1:5760 for dronekit-pixhawk and "
-            "dyopilot-pixhawk when omitted."
+            "Connection string for --target pixhawk (e.g. /dev/ttyUSB0, "
+            f"tcp:192.168.1.1:5760). Default: {DEFAULT_CONNECTION}. Ignored for sitl."
         ),
     )
     parser.add_argument(
@@ -65,11 +72,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gcs-port",
         type=int,
-        default=14550,
+        default=None,
         metavar="PORT",
         help=(
-            "UDP port for the QGroundControl proxy (default: 14550). "
-            "Set to 0 to disable. Applies to --backend dronekit-sitl and dyopilot-sitl."
+            "UDP port for the QGroundControl proxy. Default: "
+            f"{DEFAULT_GCS_PORT} for --target sitl, off for pixhawk. 0 disables it."
         ),
     )
     parser.add_argument(
@@ -79,23 +86,23 @@ def parse_args() -> argparse.Namespace:
         metavar="HOST",
         help=(
             "IP address of the machine running QGroundControl (default: 127.0.0.1). "
-            "Use 255.255.255.255 to broadcast to the whole LAN. "
-            "Applies to --backend dronekit-sitl and dyopilot-sitl."
+            "Use 255.255.255.255 to broadcast to the whole LAN."
         ),
     )
     return parser.parse_args()
 
 
 def build_controller(args: argparse.Namespace) -> DroneController:
-    """Instantiate the controller selected by ``args.backend``.
+    """Instantiate the controller selected by ``--driver`` and ``--target``.
 
-    Thin wrapper over :func:`dyodrone.core.factory.create_controller` that turns an
-    unusable backend into a clean exit message.
+    Thin wrapper over :func:`dyodrone.core.factory.create_controller` that
+    applies the proxy default and turns an unusable driver into a clean exit.
     """
+    gcs_port = args.gcs_port
+    if gcs_port is None:
+        gcs_port = DEFAULT_GCS_PORT if args.target == "sitl" else 0
     try:
-        return create_controller(
-            args.backend, args.connect, args.gcs_port, args.gcs_host
-        )
+        return create_controller(args.driver, args.target, args.connect, gcs_port, args.gcs_host)
     except BackendUnavailable as exc:
         raise SystemExit(str(exc))
 
@@ -238,10 +245,7 @@ def main() -> int:
     """CLI entry point: parse arguments, build the backend, run the console."""
     args = parse_args()
 
-    if not args.connect and args.backend in DEFAULT_CONNECT:
-        args.connect = DEFAULT_CONNECT[args.backend]
-
-    print(f"Starting {args.backend} backend...")
+    print(f"Starting {args.driver} driver, {args.target} target...")
     controller = build_controller(args)
     return run_cli(interval=args.interval, duration=args.duration, controller=controller)
 

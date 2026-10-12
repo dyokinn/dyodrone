@@ -110,9 +110,9 @@ def test_favicon_is_empty(stack):
 
 def test_state_has_the_fields_the_page_uses(stack):
     state = json_of(stack.request("GET", "/api/state"))
-    assert {"family", "python", "mode", "connection", "gcs_port", "status", "busy", "queued",
+    assert {"driver", "python", "target", "connection", "gcs_port", "status", "busy", "queued",
             "telemetry", "details", "log", "last_id"} <= set(state)
-    assert state["status"] == "disconnected" and state["family"] == "dyopilot"
+    assert state["status"] == "disconnected" and state["driver"] == "dyopilot"
 
 
 def test_state_since_parameter_filters_the_log(stack):
@@ -122,7 +122,7 @@ def test_state_since_parameter_filters_the_log(stack):
 
 
 def test_connect_command_disconnect_cycle(stack):
-    assert stack.request("POST", "/api/connect", {"mode": "sitl", "gcs_port": 0})[0] == 200
+    assert stack.request("POST", "/api/connect", {"target": "sitl", "gcs_port": 0})[0] == 200
     assert wait_for(lambda: json_of(stack.request("GET", "/api/state"))["status"] == "connected")
 
     assert stack.request("POST", "/api/command", {"line": "takeoff 10"})[0] == 200
@@ -137,13 +137,13 @@ def test_connect_command_disconnect_cycle(stack):
 
 
 def test_second_connect_is_a_conflict(stack):
-    stack.request("POST", "/api/connect", {"mode": "sitl"})
+    stack.request("POST", "/api/connect", {"target": "sitl"})
     assert wait_for(lambda: json_of(stack.request("GET", "/api/state"))["status"] == "connected")
-    status, _, body = stack.request("POST", "/api/connect", {"mode": "sitl"})
+    status, _, body = stack.request("POST", "/api/connect", {"target": "sitl"})
     assert status == 409 and "error" in json.loads(body.decode())
 
 
-@pytest.mark.parametrize("body", [{"mode": "warp"}, {"mode": "sitl", "gcs_port": 99999}, {"mode": "sitl", "gcs_port": "x"}])
+@pytest.mark.parametrize("body", [{"target": "warp"}, {"target": "sitl", "gcs_port": 99999}, {"target": "sitl", "gcs_port": "x"}])
 def test_invalid_connect_bodies_are_400(stack, body):
     assert stack.request("POST", "/api/connect", body)[0] == 400
 

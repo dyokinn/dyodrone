@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional
 
 from dyodrone.core.controller import DroneController
+from dyodrone.core.targets import Target
 
 ARMED_FLAG = 128  # MAV_MODE_FLAG_SAFETY_ARMED
 
@@ -85,6 +86,23 @@ class FakeController(DroneController):
 
     def rotate_right(self, degrees: float) -> None:
         self.calls.append(("rotate_right", degrees))
+
+
+class FakeTarget(Target):
+    """A target that only records acquire/release, optionally into a shared log."""
+
+    name = "fake"
+
+    def __init__(self, connection: str = "tcp:127.0.0.1:5760", log: Optional[List[str]] = None) -> None:
+        self.connection = connection
+        self.log = log if log is not None else []
+
+    def acquire(self) -> str:
+        self.log.append("acquire")
+        return self.connection
+
+    def release(self) -> None:
+        self.log.append("release")
 
 
 class FakeMav:

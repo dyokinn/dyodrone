@@ -7,7 +7,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from fakes import FakeMaster
+from fakes import FakeMaster, FakeTarget
 from marks import needs_pymavlink
 
 pytestmark = [needs_pymavlink, pytest.mark.dyopilot]
@@ -17,16 +17,10 @@ pytest.importorskip("pymavlink")
 from pymavlink import mavutil  # noqa: E402
 
 from dyodrone.drivers import dyopilot_driver as driver  # noqa: E402
-from dyodrone.drivers.dyopilot_driver import _PyMAVLinkBase  # noqa: E402
+from dyodrone.drivers.dyopilot_driver import DyopilotController  # noqa: E402
 
 HOME_LAT, HOME_LON = -35.363261, 149.165230
 
-
-class Harness(_PyMAVLinkBase):
-    """The shared base has no connect(); tests install a fake master directly."""
-
-    def connect(self) -> None:  # pragma: no cover - not used
-        raise NotImplementedError
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +39,7 @@ def master():
 
 @pytest.fixture
 def ctrl(master):
-    c = Harness(heartbeat_timeout=0.1)
+    c = DyopilotController(FakeTarget(), heartbeat_timeout=0.1)
     c._master = master
     return c
 
@@ -69,13 +63,13 @@ def position_target(master):
 
 def test_master_property_requires_a_connection():
     with pytest.raises(RuntimeError, match="not been established"):
-        Harness().master
+        DyopilotController(FakeTarget()).master
 
 
 def test_open_master_connects_requests_streams_and_starts_reader(monkeypatch):
     fake = FakeMaster()
     monkeypatch.setattr(driver.mavutil, "mavlink_connection", lambda conn: fake)
-    c = Harness(heartbeat_timeout=0.1)
+    c = DyopilotController(FakeTarget(), heartbeat_timeout=0.1)
     c._open_master("tcp:127.0.0.1:5760")
     try:
         assert c.active_connection == "tcp:127.0.0.1:5760"
@@ -88,7 +82,7 @@ def test_open_master_connects_requests_streams_and_starts_reader(monkeypatch):
 
 def test_open_master_times_out_without_heartbeat(monkeypatch):
     monkeypatch.setattr(driver.mavutil, "mavlink_connection", lambda conn: FakeMaster(heartbeat=False))
-    c = Harness(heartbeat_timeout=0.1)
+    c = DyopilotController(FakeTarget(), heartbeat_timeout=0.1)
     with pytest.raises(TimeoutError, match="No heartbeat"):
         c._open_master("tcp:127.0.0.1:1")
     assert c._reader is None
@@ -97,7 +91,7 @@ def test_open_master_times_out_without_heartbeat(monkeypatch):
 def test_open_master_wires_the_proxy_into_the_reader(monkeypatch):
     monkeypatch.setattr(driver.mavutil, "mavlink_connection", lambda conn: FakeMaster())
     proxy = SimpleNamespace(forward=lambda b: None)
-    c = Harness(heartbeat_timeout=0.1)
+    c = DyopilotController(FakeTarget(), heartbeat_timeout=0.1)
     c._open_master("tcp:x:1", proxy=proxy)
     try:
         assert c._reader._on_frame is proxy.forward
@@ -265,7 +259,7 @@ def test_status_lines_with_full_telemetry(ctrl, master):
 
 
 def test_status_lines_without_telemetry_say_unknown():
-    c = Harness()
+    c = DyopilotController(FakeTarget())
     c._master = FakeMaster()
     c._master.messages.clear()
     text = "\n".join(c.status_lines())
@@ -274,10 +268,10 @@ def test_status_lines_without_telemetry_say_unknown():
 
 
 def test_battery_sentinels_are_reported_as_unknown():
-    out = Harness._format_battery(SimpleNamespace(voltage_battery=11000, current_battery=-1, battery_remaining=-1))
+    out = DyopilotController._format_battery(SimpleNamespace(voltage_battery=11000, current_battery=-1, battery_remaining=-1))
     assert out == "voltage=11.0V, current=unknown, level=unknown"
 
 
 @pytest.mark.parametrize("fix, label", [(0, "no GPS"), (3, "3D"), (6, "RTK-fixed"), (9, "type=9")])
 def test_gps_fix_labels(fix, label):
-    assert Harness._format_gps_fix(SimpleNamespace(fix_type=fix)) == label
+    assert DyopilotController._format_gps_fix(SimpleNamespace(fix_type=fix)) == label

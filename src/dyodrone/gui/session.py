@@ -14,10 +14,16 @@ import time
 from typing import Any, Dict, List, Optional
 
 from dyodrone.core.commands import COMMAND_HELP, handle_command
-from dyodrone.core.factory import DEFAULT_CONNECT, BackendUnavailable, create_controller
+from dyodrone.core.factory import (
+    DEFAULT_CONNECTION,
+    DEFAULT_GCS_PORT,
+    DRIVERS,
+    BackendUnavailable,
+    create_controller,
+    default_driver,
+)
+from dyodrone.core.targets import TARGETS
 
-FAMILIES = ("dronekit", "dyopilot")
-MODES = ("sitl", "pixhawk")
 
 # Connection states reported to the page.
 DISCONNECTED = "disconnected"
@@ -33,17 +39,12 @@ class SessionError(Exception):
     """An action is not valid in the session's current state (HTTP 409)."""
 
 
-def default_family() -> str:
-    """Backend family that can run on this interpreter."""
-    return "dronekit" if sys.version_info < (3, 10) else "dyopilot"
-
-
 class ConsoleSession:
     """Owns the controller, the connection state and a capped command log.
 
     Parameters
     ----------
-    family:
+    driver:
         ``"dronekit"`` or ``"dyopilot"``. Fixed for the life of the session: a
         process runs on one interpreter, and DroneKit and dyopilot need
         different ones (see the installation guide).
@@ -51,14 +52,14 @@ class ConsoleSession:
         Number of log entries kept; older ones are dropped.
     """
 
-    def __init__(self, family: Optional[str] = None, max_log: int = 1000) -> None:
-        family = family or default_family()
-        if family not in FAMILIES:
-            raise ValueError(f"family must be one of {FAMILIES}, got {family!r}")
-        self.family = family
-        self.mode = "sitl"
-        self.connection = DEFAULT_CONNECT.get(f"{family}-pixhawk", "")
-        self.gcs_port = 14550
+    def __init__(self, driver: Optional[str] = None, max_log: int = 1000) -> None:
+        driver = driver or default_driver()
+        if driver not in DRIVERS:
+            raise ValueError(f"driver must be one of {DRIVERS}, got {driver!r}")
+        self.driver = driver
+        self.target = "sitl"
+        self.connection = DEFAULT_CONNECTION
+        self.gcs_port = DEFAULT_GCS_PORT
 
         self._lock = threading.RLock()
         self._controller: Any = None
@@ -71,7 +72,7 @@ class ConsoleSession:
 
         self._worker = threading.Thread(target=self._run_commands, name="console-commands", daemon=True)
         self._worker.start()
-        self._add("sys", f"dyodrone console — {family} backends, Python {sys.version.split()[0]}. Type 'help'.")
+        self._add("sys", f"dyodrone console — {driver} driver, Python {sys.version.split()[0]}. Type 'help'.")
 
     # ------------------------------------------------------------------
     # Log
@@ -88,40 +89,42 @@ class ConsoleSession:
     # Connection
     # ------------------------------------------------------------------
 
-    def connect(self, mode: str, connection: Optional[str] = None, gcs_port: Optional[int] = None) -> None:
-        """Start connecting in the background using the ``<family>-<mode>`` backend."""
-        if mode not in MODES:
-            raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    def connect(self, target: str, connection: Optional[str] = None, gcs_port: Optional[int] = None) -> None:
+        """Start connecting to *target* (``"sitl"`` or ``"pixhawk"``) in the background.
+
+        ``connection`` is the Pixhawk connection string; ``gcs_port`` is the
+        QGroundControl proxy port for the simulator (``0`` disables it).
+        """
+        if target not in TARGETS:
+            raise ValueError(f"target must be one of {TARGETS}, got {target!r}")
         if gcs_port is not None and not 0 <= gcs_port <= 65535:
             raise ValueError("gcs_port must be between 0 and 65535")
-        connection = (connection or "").strip() or DEFAULT_CONNECT.get(f"{self.family}-{mode}", "")
-        if mode == "pixhawk" and not connection:
-            raise ValueError("A connection string is required for Pixhawk mode")
+        connection = (connection or "").strip() or DEFAULT_CONNECTION
 
         with self._lock:
             if self._status in (CONNECTING, CONNECTED, DISCONNECTING):
                 raise SessionError(f"Cannot connect while {self._status}")
             self._status = CONNECTING
-            self.mode = mode
-            if mode == "pixhawk":
+            self.target = target
+            if target == "pixhawk":
                 self.connection = connection
             if gcs_port is not None:
                 self.gcs_port = gcs_port
+            proxy_port = self.gcs_port if target == "sitl" else 0
 
-        threading.Thread(target=self._connect, args=(mode, connection, self.gcs_port), daemon=True).start()
+        threading.Thread(target=self._connect, args=(target, connection, proxy_port), daemon=True).start()
 
-    def _connect(self, mode: str, connection: str, gcs_port: int) -> None:
-        backend = f"{self.family}-{mode}"
-        target = "built-in simulator" if mode == "sitl" else connection
-        self._add("sys", f"Connecting ({backend}) to {target} …")
+    def _connect(self, target: str, connection: str, gcs_port: int) -> None:
+        label = "built-in simulator" if target == "sitl" else connection
+        self._add("sys", f"Connecting ({self.driver}/{target}) to {label} …")
         controller = None
         try:
-            controller = create_controller(backend, connection if mode == "pixhawk" else None, gcs_port)
+            controller = create_controller(self.driver, target, connection, gcs_port)
             controller.connect()
         except BackendUnavailable as exc:
             self._fail(str(exc), controller)
             return
-        except Exception as exc:  # noqa: BLE001 - surface any backend failure in the console
+        except Exception as exc:  # noqa: BLE001 - surface any driver failure in the console
             self._fail(f"Connection failed: {exc}", controller)
             return
         with self._lock:
@@ -254,9 +257,9 @@ class ConsoleSession:
         lines, details = self._telemetry()
         with self._lock:
             return {
-                "family": self.family,
+                "driver": self.driver,
                 "python": sys.version.split()[0],
-                "mode": self.mode,
+                "target": self.target,
                 "connection": self.connection,
                 "gcs_port": self.gcs_port,
                 "status": self._status,

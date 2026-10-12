@@ -117,7 +117,7 @@ class _Handler(BaseHTTPRequestHandler):
             if path == "/api/connect":
                 gcs_port = body.get("gcs_port")
                 session.connect(
-                    str(body.get("mode", "")),
+                    str(body.get("target", "")),
                     body.get("connection"),
                     int(gcs_port) if gcs_port not in (None, "") else None,
                 )

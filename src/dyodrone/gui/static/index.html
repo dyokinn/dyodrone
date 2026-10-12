@@ -109,13 +109,13 @@
 <body>
 <header>
   <h1>dyodrone<span>▸</span>console</h1>
-  <span class="badge" id="family" title="Backend family for this interpreter">—</span>
+  <span class="badge" id="driver" title="Driver (flight-control library) for this interpreter">—</span>
   <span class="pill" id="pill" data-status="offline"><span class="dot"></span><span id="pilltext">connecting to server…</span></span>
   <span class="spacer"></span>
   <div class="controls">
-    <div class="seg" role="radiogroup" aria-label="Connection mode">
-      <input type="radio" name="mode" id="m-sitl" value="sitl" checked><label for="m-sitl">Simulator</label>
-      <input type="radio" name="mode" id="m-pix" value="pixhawk"><label for="m-pix">Pixhawk</label>
+    <div class="seg" role="radiogroup" aria-label="Connection target">
+      <input type="radio" name="target" id="m-sitl" value="sitl" checked><label for="m-sitl">Simulator</label>
+      <input type="radio" name="target" id="m-pix" value="pixhawk"><label for="m-pix">Pixhawk</label>
     </div>
     <label class="field" id="connfield" hidden>Connection <input type="text" id="conn" spellcheck="false" placeholder="tcp:127.0.0.1:5760 or /dev/ttyUSB0"></label>
     <label class="field" id="gcsfield">QGC UDP port <input type="number" id="gcs" min="0" max="65535" value="14550" title="0 disables the QGroundControl proxy"></label>
@@ -196,23 +196,23 @@
 
   function setPill(s, text) { pill.dataset.status = s; $("pilltext").textContent = text; }
 
-  function selectedMode() { return document.querySelector('input[name="mode"]:checked').value; }
+  function selectedTarget() { return document.querySelector('input[name="target"]:checked').value; }
 
   function applyMode() {
-    var pix = selectedMode() === "pixhawk";
+    var pix = selectedTarget() === "pixhawk";
     $("connfield").hidden = !pix; $("gcsfield").hidden = pix;
   }
 
   function render(s) {
     status = s.status;
-    $("family").textContent = s.family + " · Python " + s.python;
-    setPill(s.status, s.status + (s.status === "connected" ? " · " + s.mode : ""));
+    $("driver").textContent = s.driver + " · Python " + s.python;
+    setPill(s.status, s.status + (s.status === "connected" ? " · " + s.target : ""));
     var idle = s.status === "disconnected" || s.status === "error";
     var locked = !idle;
-    document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.disabled = locked; });
+    document.querySelectorAll('input[name="target"]').forEach(function (r) { r.disabled = locked; });
     $("conn").disabled = locked; $("gcs").disabled = locked;
     if (firstState || locked) {
-      document.querySelector('input[name="mode"][value="' + s.mode + '"]').checked = true;
+      document.querySelector('input[name="target"][value="' + s.target + '"]').checked = true;
       $("conn").value = s.connection; $("gcs").value = s.gcs_port; applyMode();
     }
     firstState = false;
@@ -239,12 +239,12 @@
     api("/api/command", { line: line }).then(poll).catch(function (e) { addLine("err", e.message); });
   }
 
-  document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", applyMode); });
+  document.querySelectorAll('input[name="target"]').forEach(function (r) { r.addEventListener("change", applyMode); });
 
   toggleBtn.addEventListener("click", function () {
     var p = status === "connected"
       ? api("/api/disconnect", {})
-      : api("/api/connect", { mode: selectedMode(), connection: $("conn").value, gcs_port: $("gcs").value });
+      : api("/api/connect", { target: selectedTarget(), connection: $("conn").value, gcs_port: $("gcs").value });
     p.then(poll).catch(function (e) { addLine("err", e.message); });
   });
 

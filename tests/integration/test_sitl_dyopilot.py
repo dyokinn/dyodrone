@@ -24,9 +24,10 @@ def agl(controller) -> float:
 
 
 def test_takeoff_land_and_clean_shutdown():
-    from dyodrone.drivers.dyopilot_sitl import DyopilotSITLController
+    from dyodrone.core.targets import SitlTarget
+    from dyodrone.drivers.dyopilot_driver import DyopilotController
 
-    ctrl = DyopilotSITLController(gcs_port=None)
+    ctrl = DyopilotController(SitlTarget())
     ctrl.connect()
     try:
         assert wait_for(lambda: ctrl.master.messages.get("GPS_RAW_INT") is not None, timeout=30)
@@ -43,11 +44,12 @@ def test_takeoff_land_and_clean_shutdown():
 def test_pixhawk_controller_drives_a_standalone_simulator():
     import dronekit_sitl
 
-    from dyodrone.drivers.dyopilot_pixhawk import DyopilotPixhawkController
+    from dyodrone.core.targets import ExternalTarget
+    from dyodrone.drivers.dyopilot_driver import DyopilotController
 
     sitl = dronekit_sitl.start_default()
     try:
-        ctrl = DyopilotPixhawkController(connection=sitl.connection_string())
+        ctrl = DyopilotController(ExternalTarget(sitl.connection_string()))
         ctrl.connect()
         try:
             assert wait_for(lambda: ctrl.master.messages.get("HEARTBEAT") is not None, timeout=10)
@@ -78,7 +80,7 @@ def test_web_console_flies_the_simulator():
         return data
 
     try:
-        call("POST", "/api/connect", {"mode": "sitl", "gcs_port": 0})
+        call("POST", "/api/connect", {"target": "sitl", "gcs_port": 0})
         assert wait_for(lambda: call("GET", "/api/state")["status"] == "connected", timeout=60)
         call("POST", "/api/command", {"line": "takeoff 10"})
         assert wait_for(lambda: any("Takeoff initiated" in e["text"] for e in call("GET", "/api/state")["log"]), timeout=60)
