@@ -18,8 +18,8 @@ and no ``sys.path`` tricks.
    * - ``dyodrone-gui``
      - Browser console: live vehicle info, command prompt, Simulator/Pixhawk toggle
      - :doc:`dyodrone_gui`
-   * - ``tox -e <name>``
-     - Runners: tests on Python 3.7 / 3.12, live-simulator tests, the docs build
+   * - ``runners/*.sh``
+     - Scripts to build the docs, run all tests, and launch the web console (they call tox / the console script)
      - :doc:`runners`
 
 Repository layout
@@ -29,7 +29,8 @@ Repository layout
 
    dyodrone/
    ├── pyproject.toml                 ← metadata, extras (dronekit, dyopilot, docs, test), console scripts, pytest config
-   ├── tox.ini                        ← runners: which Python for which task
+   ├── tox.ini                        ← environments: which Python for which task
+   ├── runners/                       ← build_docs.sh, run_tests.sh, launch_web.sh
    ├── src/dyodrone/
    │   ├── core/                      ← controller ABC, commands, targets, GCS proxy, factory
    │   ├── drivers/                   ← dronekit_driver (Python 3.7), dyopilot_driver + reader (pymavlink)
@@ -51,7 +52,7 @@ Once installed, the commands work from any directory:
 
    dyodrone-cli --driver dyopilot --target sitl
    dyodrone-gui --no-browser
-   tox -e docs
+   runners/build_docs.sh
 
 .. toctree::
    :maxdepth: 1

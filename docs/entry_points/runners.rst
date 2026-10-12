@@ -1,8 +1,48 @@
 Runners
 =======
 
+The ``runners/`` folder holds shell scripts for the three everyday tasks. Run
+them from anywhere in the repo; each one sets up whatever environment it needs
+the first time.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Script
+     - What it does
+   * - ``runners/build_docs.sh``
+     - Builds these docs into ``docs/_build/html`` (``--clean`` wipes the old
+       build, ``--open`` opens the result).
+   * - ``runners/run_tests.sh``
+     - Unit tests on Python 3.12 and 3.7. ``--all`` adds the live-simulator tests
+       and the docs build; ``--env NAME`` picks environments; arguments after
+       ``--`` go to pytest, e.g. ``-- -k gui -x``.
+   * - ``runners/launch_web.sh``
+     - Starts the web console (``dyodrone-gui``) on Python 3.12 with the dyopilot
+       driver; ``--dronekit`` uses a Python 3.7 environment instead. Other
+       options go to ``dyodrone-gui`` (``--port 9000``, ``--no-browser``).
+
+.. code-block:: bash
+
+   runners/build_docs.sh --open
+   runners/run_tests.sh
+   runners/run_tests.sh --all
+   runners/launch_web.sh --port 9000
+
+``build_docs.sh`` and ``run_tests.sh`` run tox, which they install into a private
+``.venv-tox`` on first use. ``launch_web.sh`` creates ``.venv-dyopilot`` (or
+``.venv-dronekit``) and installs the package into it. All of these ``.venv-*``
+folders are ignored by git and safe to delete. ``runners/_common.sh`` holds the
+shared helpers and is not run directly. Python 3.7 is found through ``pyenv``
+automatically when it is installed but not selected.
+
+tox environments
+----------------
+
 ``tox.ini`` defines one environment per task, so "which Python, which
-dependencies" is written down instead of remembered. Run one with
+dependencies" is written down instead of remembered. The scripts above call
+tox; you can also run an environment directly with
 ``tox -e <name>``; ``tox`` alone runs ``dyopilot`` and ``dronekit``.
 
 .. list-table::
