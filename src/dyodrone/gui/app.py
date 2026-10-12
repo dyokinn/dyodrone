@@ -7,14 +7,9 @@ import logging
 import signal
 import sys
 import webbrowser
-from pathlib import Path
 
-# This script lives in entry_points/, so sys.path[0] is that folder, not the
-# repo root where the packages live.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from drone_gui.server import ConsoleServer  # noqa: E402
-from drone_gui.session import FAMILIES, ConsoleSession, default_family  # noqa: E402
+from dyodrone.gui.server import ConsoleServer
+from dyodrone.gui.session import FAMILIES, ConsoleSession, default_family
 
 # DroneKit's autopilot logger would otherwise print status lines over the log.
 logging.getLogger("autopilot").disabled = True

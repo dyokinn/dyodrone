@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from dyopilot_version.dyopilot_controller import _PyMAVLinkBase
+from dyodrone.drivers.dyopilot_driver import _PyMAVLinkBase
 
 LOG = logging.getLogger(__name__)
 

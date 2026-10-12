@@ -3,15 +3,6 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-import os
-import sys
-
-# Make the top-level modules (drone_controller, dronekit_version,
-# dyopilot_version) and the entry_points/ scripts (drone_cli) importable for
-# autodoc.
-sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath('../entry_points'))
-
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -45,7 +36,7 @@ autodoc_default_options = {'show-inheritance': True}
 # DroneKit cannot be imported on the Python versions the docs are built with
 # (it uses collections.MutableMapping, removed in 3.10) and dronekit_sitl is
 # only imported lazily at runtime, so mock both. pymavlink is installed for
-# real (docs/requirements.txt): dyopilot_version evaluates mavutil constants
+# real (the ``docs`` extra): the dyopilot driver evaluates mavutil constants
 # at import time.
 autodoc_mock_imports = ['dronekit', 'dronekit_sitl']
 

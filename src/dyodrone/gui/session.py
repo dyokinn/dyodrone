@@ -13,13 +13,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from drone_console import (
-    COMMAND_HELP,
-    DEFAULT_CONNECT,
-    BackendUnavailable,
-    create_controller,
-    handle_command,
-)
+from dyodrone.core.commands import COMMAND_HELP, handle_command
+from dyodrone.core.factory import DEFAULT_CONNECT, BackendUnavailable, create_controller
 
 FAMILIES = ("dronekit", "dyopilot")
 MODES = ("sitl", "pixhawk")

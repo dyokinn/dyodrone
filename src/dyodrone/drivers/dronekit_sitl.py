@@ -8,8 +8,8 @@ from typing import Optional
 import dronekit_sitl
 from dronekit import connect
 
-from dronekit_version.dronekit_controller import _DroneKitBase
-from dronekit_version.gcs_proxy import GCSProxy
+from dyodrone.drivers.dronekit_driver import _DroneKitBase
+from dyodrone.core.proxy import GCSProxy
 
 LOG = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class DronekitSITLController(_DroneKitBase):
     wait_ready:
         Block until the vehicle reports ready (default ``True``).
     gcs_port:
-        When provided, a :class:`~dronekit_version.gcs_proxy.GCSProxy` is
+        When provided, a :class:`~dyodrone.core.proxy.GCSProxy` is
         started that forwards all MAVLink telemetry from SITL to QGroundControl
         (or any GCS) via UDP broadcast on this port.  The standard QGC port is
         ``14550``.  Pass ``None`` (the default) to disable the proxy.

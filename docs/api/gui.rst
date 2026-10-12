@@ -6,15 +6,15 @@ The package behind :doc:`../entry_points/drone_gui`.
 Session
 -------
 
-.. autoclass:: drone_gui.session.ConsoleSession
+.. autoclass:: dyodrone.gui.session.ConsoleSession
    :members: connect, disconnect, submit, snapshot, close
 
-.. autoclass:: drone_gui.session.SessionError
+.. autoclass:: dyodrone.gui.session.SessionError
 
-.. autofunction:: drone_gui.session.default_family
+.. autofunction:: dyodrone.gui.session.default_family
 
 Server
 ------
 
-.. autoclass:: drone_gui.server.ConsoleServer
+.. autoclass:: dyodrone.gui.server.ConsoleServer
    :members: url

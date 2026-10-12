@@ -6,7 +6,7 @@ import logging
 
 from dronekit import connect
 
-from dronekit_version.dronekit_controller import _DroneKitBase
+from dyodrone.drivers.dronekit_driver import _DroneKitBase
 
 LOG = logging.getLogger(__name__)
 

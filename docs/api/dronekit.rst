@@ -8,21 +8,21 @@ importable at runtime.
 Shared flight logic
 -------------------
 
-.. autoclass:: dronekit_version.dronekit_controller._DroneKitBase
+.. autoclass:: dyodrone.drivers.dronekit_driver._DroneKitBase
    :members:
    :show-inheritance:
 
 SITL backend
 ------------
 
-.. autoclass:: dronekit_version.dronekit_sitl_controller.DronekitSITLController
+.. autoclass:: dyodrone.drivers.dronekit_sitl.DronekitSITLController
    :members:
    :show-inheritance:
 
 Pixhawk backend
 ---------------
 
-.. autoclass:: dronekit_version.dronekit_pixhawk_controller.DronekitPixhawkController
+.. autoclass:: dyodrone.drivers.dronekit_pixhawk.DronekitPixhawkController
    :members:
    :show-inheritance:
 
@@ -31,5 +31,5 @@ GCS proxy
 
 Shared by both backend families — see :doc:`../guide/proxy`.
 
-.. autoclass:: dronekit_version.gcs_proxy.GCSProxy
+.. autoclass:: dyodrone.core.proxy.GCSProxy
    :members:

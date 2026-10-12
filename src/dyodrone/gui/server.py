@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
-from drone_gui.session import ConsoleSession, SessionError
+from dyodrone.gui.session import ConsoleSession, SessionError
 
 _INDEX = Path(__file__).resolve().parent / "static" / "index.html"
 _MAX_BODY = 64 * 1024

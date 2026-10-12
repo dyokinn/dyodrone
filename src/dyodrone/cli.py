@@ -7,21 +7,16 @@ import curses
 import logging
 import sys
 import time
-from pathlib import Path
 from typing import Any, Optional
 
-# This script lives in entry_points/, so sys.path[0] is that folder, not the
-# repo root where drone_controller, dronekit_version and dyopilot_version live.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from drone_console import (  # noqa: E402
+from dyodrone.core.commands import handle_command
+from dyodrone.core.controller import DroneController
+from dyodrone.core.factory import (
     BACKENDS,
     DEFAULT_CONNECT,
     BackendUnavailable,
     create_controller,
-    handle_command,
 )
-from drone_controller import DroneController  # noqa: E402
 
 # Silence autopilot logger that spams the curses console with status lines.
 logging.getLogger("autopilot").disabled = True
@@ -94,7 +89,7 @@ def parse_args() -> argparse.Namespace:
 def build_controller(args: argparse.Namespace) -> DroneController:
     """Instantiate the controller selected by ``args.backend``.
 
-    Thin wrapper over :func:`drone_console.create_controller` that turns an
+    Thin wrapper over :func:`dyodrone.core.factory.create_controller` that turns an
     unusable backend into a clean exit message.
     """
     try:

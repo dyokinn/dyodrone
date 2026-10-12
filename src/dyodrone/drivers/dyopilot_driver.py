@@ -1,7 +1,7 @@
 """Internal pymavlink base — shared flight logic for SITL and Pixhawk backends.
 
 Not meant to be instantiated directly. Use DyopilotSITLController or
-DyopilotPixhawkController instead. Mirrors dronekit_version/dronekit_controller.py's
+DyopilotPixhawkController instead. Mirrors drivers/dronekit_driver.py's
 _DroneKitBase, but built on raw pymavlink/mavutil instead of DroneKit's Vehicle
 wrapper — no DroneKit dependency anywhere in this file, which is what lets it
 run on a current Python interpreter instead of the 3.7 DroneKit is pinned to.
@@ -16,9 +16,9 @@ from typing import List, Optional
 
 from pymavlink import mavutil
 
-from drone_controller import DroneController
-from dronekit_version.gcs_proxy import GCSProxy
-from dyopilot_version.pymavlink_reader import MAVLinkReader
+from dyodrone.core.controller import DroneController
+from dyodrone.core.proxy import GCSProxy
+from dyodrone.drivers.dyopilot_reader import MAVLinkReader
 
 LOG = logging.getLogger(__name__)
 

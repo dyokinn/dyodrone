@@ -14,7 +14,7 @@ from typing import Callable, List, Optional
 from dronekit import LocationGlobalRelative, Vehicle, VehicleMode, connect  # noqa: F401
 from pymavlink import mavutil
 
-from drone_controller import DroneController
+from dyodrone.core.controller import DroneController
 
 LOG = logging.getLogger(__name__)
 
