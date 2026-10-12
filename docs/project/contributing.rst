@@ -20,14 +20,21 @@ is a subclass plus three small edits.
      from ``connect()`` — it waits for a heartbeat, requests data streams and
      starts the reader thread.
 
-#. **Register it in the CLI** (``entry_points/drone_cli.py``):
+#. **Register it in** ``drone_console.py`` **(shared by the CLI and the web
+   console):**
 
-   * add the name to ``--backend`` ``choices``;
-   * add a default to ``_DEFAULT_CONNECT`` if it takes ``--connect``;
-   * add a branch in ``build_controller()`` that imports the class **inside
+   * add the name to ``BACKENDS``;
+   * add a default to ``DEFAULT_CONNECT`` if it takes a connection string;
+   * add a branch in ``create_controller()`` that imports the class **inside
      the branch** (never at module top), so a backend's dependencies are only
      imported when it is selected;
-   * if it cannot run on current Python, gate it like ``_require_python37``.
+   * if it cannot run on current Python, gate it like ``require_python37``
+     (raise ``BackendUnavailable``).
+
+   The CLI picks the new name up through ``BACKENDS``. The web console builds
+   ``<family>-<mode>`` names (``dronekit``/``dyopilot`` × ``sitl``/``pixhawk``),
+   so a backend outside that scheme also needs a change in
+   ``drone_gui/session.py``.
 
 #. **Document it.** Add an autodoc entry under ``docs/api/``, a row in the
    backend tables in :doc:`../guide/how` and :doc:`/index`, and a note in
@@ -39,7 +46,9 @@ Conventions used in the code
 * ``from __future__ import annotations`` at the top of every module.
 * NumPy-style docstrings (``Parameters`` / ``----------``); rendered by
   ``sphinx.ext.napoleon``.
-* Backend-specific logic stays out of ``drone_controller.py`` and the CLI.
+* Backend-specific logic stays out of ``drone_controller.py``, ``drone_console.py``'s command handling and both front ends.
+* Code in ``drone_console.py`` and ``drone_gui/`` stays Python 3.7 compatible (the
+  web console runs in both environments).
 * Flight commands are fire-and-forget except ``takeoff`` and ``land``, which
   block until the mode change is confirmed.
 

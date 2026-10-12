@@ -8,30 +8,23 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 # This script lives in entry_points/, so sys.path[0] is that folder, not the
 # repo root where drone_controller, dronekit_version and dyopilot_version live.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from drone_console import (  # noqa: E402
+    BACKENDS,
+    DEFAULT_CONNECT,
+    BackendUnavailable,
+    create_controller,
+    handle_command,
+)
 from drone_controller import DroneController  # noqa: E402
 
 # Silence autopilot logger that spams the curses console with status lines.
 logging.getLogger("autopilot").disabled = True
-
-# Backends whose controllers import DroneKit, which is incompatible with
-# Python 3.10+ (see build_controller() below). These must be run under the
-# Python 3.7 interpreter described in dronekit_version/requirements-3.7.17.txt.
-_DRONEKIT_BACKENDS = {"dronekit-sitl", "dronekit-pixhawk"}
-
-# Default connection strings used when --connect is omitted.
-# The two "-sitl" backends self-provision a connection string when they
-# launch their own SITL instance, so they have no default here.
-_DEFAULT_CONNECT: dict[str, str] = {
-    "dronekit-pixhawk": "tcp:127.0.0.1:5760",
-    "dyopilot-pixhawk": "tcp:127.0.0.1:5760",
-}
-
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments (backend, connection, refresh and GCS options)."""
@@ -43,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=["dronekit-sitl", "dronekit-pixhawk", "dyopilot-sitl", "dyopilot-pixhawk"],
+        choices=BACKENDS,
         default="dronekit-sitl",
         help=(
             "Backend to use: dronekit-sitl (default), dronekit-pixhawk, "
@@ -98,57 +91,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _require_python37(backend: str) -> None:
-    """Fail fast with an actionable message instead of a raw AttributeError.
-
-    DroneKit (`dronekit==2.9.2`) has `class Parameters(collections.MutableMapping, ...)`,
-    and `collections.MutableMapping` was removed in Python 3.10. Importing
-    `dronekit` on 3.10+ crashes immediately, so dronekit-* backends must run
-    under the Python 3.7 interpreter described in
-    dronekit_version/requirements-3.7.17.txt.
-    """
-    if sys.version_info >= (3, 10):
-        raise SystemExit(
-            f"Backend '{backend}' requires Python 3.7 — DroneKit is incompatible "
-            "with Python 3.10+. Run this CLI with a 3.7 interpreter "
-            "(see docs/guide/how.rst)."
-        )
-
-
 def build_controller(args: argparse.Namespace) -> DroneController:
     """Instantiate the controller selected by ``args.backend``.
 
-    Backend modules are imported lazily inside each branch so that choosing a
-    ``dyopilot-*`` backend never imports DroneKit (see :doc:`/guide/how`).
+    Thin wrapper over :func:`drone_console.create_controller` that turns an
+    unusable backend into a clean exit message.
     """
-    if args.backend in _DRONEKIT_BACKENDS:
-        _require_python37(args.backend)
-        try:
-            if args.backend == "dronekit-sitl":
-                from dronekit_version.dronekit_sitl_controller import DronekitSITLController
-
-                gcs_port = args.gcs_port if args.gcs_port else None
-                return DronekitSITLController(gcs_port=gcs_port, gcs_host=args.gcs_host)
-            from dronekit_version.dronekit_pixhawk_controller import DronekitPixhawkController
-
-            return DronekitPixhawkController(connection=args.connect)
-        except AttributeError as exc:
-            raise RuntimeError(
-                f"Backend '{args.backend}' requires Python 3.7 — DroneKit is "
-                "incompatible with Python 3.10+. Run this CLI with a 3.7 "
-                "interpreter (see docs/guide/how.rst)."
-            ) from exc
-
-    if args.backend == "dyopilot-sitl":
-        from dyopilot_version.dyopilot_sitl_controller import DyopilotSITLController
-
-        gcs_port = args.gcs_port if args.gcs_port else None
-        return DyopilotSITLController(gcs_port=gcs_port, gcs_host=args.gcs_host)
-    if args.backend == "dyopilot-pixhawk":
-        from dyopilot_version.dyopilot_pixhawk_controller import DyopilotPixhawkController
-
-        return DyopilotPixhawkController(connection=args.connect)
-    raise ValueError(f"Unknown backend: {args.backend!r}")
+    try:
+        return create_controller(
+            args.backend, args.connect, args.gcs_port, args.gcs_host
+        )
+    except BackendUnavailable as exc:
+        raise SystemExit(str(exc))
 
 
 def safe_addstr(stdscr: Any, y: int, x: int, text: str) -> None:
@@ -198,83 +152,6 @@ def render_screen(
     except curses.error:
         pass
     stdscr.refresh()
-
-
-def handle_command(command: str, controller: DroneController) -> Tuple[bool, str]:
-    """Run one CLI command line against *controller*.
-
-    Returns ``(exit_requested, status_message)``; the message is shown on the
-    "Last command" line of the curses screen.
-    """
-    if not command:
-        return False, "Awaiting command..."
-
-    parts = command.split()
-    action = parts[0].lower()
-
-    if action == "takeoff":
-        if len(parts) != 2:
-            return False, "Usage: takeoff <altitude meters>"
-        try:
-            altitude = float(parts[1])
-        except ValueError:
-            return False, "Altitude must be numeric"
-        try:
-            controller.arm_and_takeoff(altitude)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"Takeoff failed: {exc}"
-        return False, f"Takeoff initiated to {altitude:.1f} m"
-
-    if action == "land":
-        try:
-            controller.land()
-        except Exception as exc:  # noqa: BLE001
-            return False, f"Landing failed: {exc}"
-        return False, "Landing command sent"
-
-    if action == "altitude":
-        if len(parts) != 2:
-            return False, "Usage: altitude <meters>"
-        try:
-            altitude = float(parts[1])
-        except ValueError:
-            return False, "Altitude must be numeric"
-        try:
-            controller.set_altitude(altitude)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"Altitude change failed: {exc}"
-        return False, f"Altitude set to {altitude:.1f} m"
-
-    if action in {"forward", "back"}:
-        if len(parts) != 2:
-            return False, f"Usage: {action} <meters>"
-        try:
-            distance = float(parts[1])
-        except ValueError:
-            return False, "Distance must be numeric"
-        try:
-            getattr(controller, f"move_{action}")(distance)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"{action.capitalize()} failed: {exc}"
-        return False, f"Moving {action} {distance:.1f} m"
-
-    if action in {"left", "right"}:
-        if len(parts) != 2:
-            return False, f"Usage: {action} <degrees>"
-        try:
-            degrees = float(parts[1])
-        except ValueError:
-            return False, "Degrees must be numeric"
-        try:
-            getattr(controller, f"rotate_{action}")(degrees)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"Rotate {action} failed: {exc}"
-        return False, f"Rotating {action} {degrees:.1f}°"
-
-    if action in {"quit", "exit"}:
-        return True, "Exiting CLI"
-
-    return False, f"Unknown command: {action}"
 
 
 def cli_loop(
@@ -366,8 +243,8 @@ def main() -> int:
     """CLI entry point: parse arguments, build the backend, run the console."""
     args = parse_args()
 
-    if not args.connect and args.backend in _DEFAULT_CONNECT:
-        args.connect = _DEFAULT_CONNECT[args.backend]
+    if not args.connect and args.backend in DEFAULT_CONNECT:
+        args.connect = DEFAULT_CONNECT[args.backend]
 
     print(f"Starting {args.backend} backend...")
     controller = build_controller(args)

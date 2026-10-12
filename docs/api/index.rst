@@ -8,6 +8,8 @@ contract comes first; the two backend families implement it.
    :maxdepth: 1
 
    controller
+   console
    dronekit
    dyopilot
    cli
+   gui

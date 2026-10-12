@@ -64,3 +64,29 @@ Docs build fails on import errors
 Autodoc imports the project. Use ``./entry_points/build_docs.sh`` (it installs
 ``pymavlink`` and mocks DroneKit). A raw ``sphinx-build`` in an environment
 without ``pymavlink`` fails when importing ``dyopilot_version``.
+
+Web console
+-----------
+
+"invalid token — reopen the URL printed in the terminal"
+   The page was opened without the per-run token, or the server was restarted
+   (each start has a new token). Use the URL ``drone_gui.py`` printed.
+
+"server unreachable"
+   The ``drone_gui.py`` process stopped. Start it again.
+
+``Cannot listen on 127.0.0.1:8765``
+   The port is taken, often by an earlier run. Pick another with ``--port``
+   (``0`` chooses a free one).
+
+Nothing opens in the browser
+   Use ``--no-browser`` and open the printed URL yourself.
+
+Connect fails immediately with "requires Python 3.7"
+   The ``dronekit`` family was selected on Python 3.10+. Start the GUI from the
+   Python 3.7 environment, or leave ``--family`` at its default.
+
+``takeoff`` seems stuck
+   It blocks until the vehicle is armable, in GUIDED mode and armed (up to a
+   minute or so). The console shows ``running: takeoff …``; other commands wait
+   in the queue, except ``info`` and ``help``.

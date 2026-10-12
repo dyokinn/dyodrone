@@ -14,6 +14,9 @@ library code that those scripts import (or documentation).
    * - ``entry_points/drone_cli.py``
      - Interactive curses console to monitor and command a drone
      - :doc:`drone_cli`
+   * - ``entry_points/drone_gui.py``
+     - Browser console: live vehicle info, command prompt, Simulator/Pixhawk toggle
+     - :doc:`drone_gui`
    * - ``entry_points/build_docs.sh``
      - Builds this documentation with Sphinx and Furo
      - :doc:`build_docs`
@@ -26,8 +29,11 @@ Repository layout
    dyodrone/
    ├── entry_points/                  ← everything you run lives here
    │   ├── drone_cli.py
+   │   ├── drone_gui.py
    │   └── build_docs.sh
-   ├── drone_controller.py            ← DroneController (ABC) the CLI depends on
+   ├── drone_controller.py            ← DroneController (ABC) the front ends depend on
+   ├── drone_console.py               ← backend selection + command handling shared by CLI and GUI
+   ├── drone_gui/                     ← web console: session, HTTP server, static page
    ├── dronekit_version/              ← DroneKit backends (Python 3.7)
    │   ├── dronekit_controller.py
    │   ├── dronekit_sitl_controller.py
@@ -62,4 +68,5 @@ any current directory, for example:
    :hidden:
 
    drone_cli
+   drone_gui
    build_docs

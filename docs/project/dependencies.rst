@@ -89,6 +89,13 @@ DroneKit and ``dronekit_sitl`` are mocked by ``docs/conf.py``
 (``autodoc_mock_imports``), so the Python 3.7 stack is not needed to build the
 docs.
 
+Web console
+-----------
+
+``drone_gui/`` and ``entry_points/drone_gui.py`` use only the Python standard
+library (``http.server``, ``threading``, ``json``); the page is one HTML file
+with inline CSS and JavaScript and loads nothing from the network.
+
 External runtime pieces
 -----------------------
 

@@ -14,6 +14,8 @@ Starting the CLI
    python entry_points/drone_cli.py --backend dyopilot-pixhawk --connect /dev/ttyUSB0  # pymavlink + Pixhawk (Python 3.12+)
    python entry_points/drone_cli.py --interval 1.0                        # refresh telemetry every 1 s
 
+Prefer a browser? ``python entry_points/drone_gui.py`` offers the same commands with a connection toggle — see :doc:`../entry_points/drone_gui`.
+
 ``dronekit-*`` backends must be run under the Python 3.7 interpreter described below; ``dyopilot-*`` backends run on the Python 3.12 interpreter. Each backend is a fully self-contained process — no backend talks to another interpreter.
 
 On launch the CLI:
@@ -181,4 +183,4 @@ Defined in ``dyopilot_version/requirements.txt``. No DroneKit anywhere in the im
 
 ``pip install``\ ing this file will also pull in ``dronekit==2.9.2`` as a transitive dependency declared by ``dronekit-sitl``'s own package metadata — you'll see it in ``pip list``. It is never imported anywhere in ``dyopilot_version/`` and is harmless dead weight; don't be alarmed by it, and don't try to ``import dronekit`` yourself in this venv (it will fail on 3.10+, same as everywhere else).
 
-Choosing the wrong interpreter for a backend fails fast: running a ``dronekit-*`` backend under Python 3.10+ prints an actionable error instead of a raw traceback (see ``build_controller()`` in ``entry_points/drone_cli.py``).
+Choosing the wrong interpreter for a backend fails fast: running a ``dronekit-*`` backend under Python 3.10+ prints an actionable error instead of a raw traceback (see ``create_controller()`` in ``drone_console.py``).

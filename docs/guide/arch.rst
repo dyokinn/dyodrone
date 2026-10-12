@@ -22,8 +22,11 @@ Three layers: an abstract controller interface, concrete backend implementations
    │   ├── dyopilot_sitl_controller.py  ← DyopilotSITLController
    │   └── dyopilot_pixhawk_controller.py ← DyopilotPixhawkController
    │
+   ├── drone_console.py              ← create_controller() + handle_command(), shared by both front ends
+   ├── drone_gui/                    ← web console (session, HTTP server, static page)
    └── entry_points/
        ├── drone_cli.py              ← curses CLI        (backend-agnostic)
+       ├── drone_gui.py              ← web console       (backend-agnostic)
        └── build_docs.sh             ← builds these docs
 
 ``dyopilot_version`` reuses ``dronekit_version/gcs_proxy.py`` directly — ``GCSProxy`` has no DroneKit dependency, it only needs a ``forward(raw_bytes)`` callback, which both ``_DroneKitBase`` (via a DroneKit message listener) and ``_PyMAVLinkBase`` (via ``MAVLinkReader``'s ``on_frame`` callback) can supply. There's no need for a separate copy per backend family.
@@ -154,14 +157,14 @@ The terminal UI imports only ``DroneController``. No backend detail leaks in.
 
 1. ``parse_args()`` collects ``--backend``, ``--connect``, ``--interval``, ``--duration``, ``--gcs-port``, ``--gcs-host``.
 2. Per-backend connection defaults are applied in ``main()``: ``tcp:127.0.0.1:5760`` for ``dronekit-pixhawk``/``dyopilot-pixhawk``; GCS proxy on ``127.0.0.1:14550`` for ``dronekit-sitl``/``dyopilot-sitl``. ``--gcs-port 0`` disables the proxy.
-3. ``build_controller()`` is the only place that knows which concrete class to instantiate. It imports each backend's module lazily, inside the matching branch, rather than at the top of the file — a ``dronekit-*`` selection is the only path that ever imports DroneKit, so choosing a ``dyopilot-*`` backend never touches it. For ``dronekit-*`` backends it also gates on ``sys.version_info`` and raises an actionable error instead of a raw ``AttributeError`` on Python 3.10+ (see :doc:`how`).
+3. ``create_controller()`` in ``drone_console.py`` (called through ``build_controller()``) is the only place that knows which concrete class to instantiate. It imports each backend's module lazily, inside the matching branch, rather than at the top of the file — a ``dronekit-*`` selection is the only path that ever imports DroneKit, so choosing a ``dyopilot-*`` backend never touches it. For ``dronekit-*`` backends it also gates on ``sys.version_info`` and raises an actionable error instead of a raw ``AttributeError`` on Python 3.10+ (see :doc:`how`).
 4. ``run_cli()`` calls ``controller.connect()``, then hands off to ``curses.wrapper``.
 
 **Render loop (``cli_loop``):**
 
 - ``nodelay(True)`` + 100 ms timeout — never hard-blocks.
 - Every ``--interval`` seconds calls ``render_screen()`` to refresh telemetry.
-- Keystrokes accumulate in a string buffer; Enter dispatches to ``handle_command()``.
+- Keystrokes accumulate in a string buffer; Enter dispatches to ``handle_command()`` (shared with the web console in ``drone_console.py``).
 - All flight commands are fire-and-forget (except ``takeoff`` and ``land`` which block internally in the controller until safe state transitions complete).
 
 **Screen layout:**

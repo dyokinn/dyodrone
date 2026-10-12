@@ -71,6 +71,7 @@ How it works
 ------------
 
 ``entry_points/drone_cli.py`` puts the repo root on ``sys.path``, then
-``build_controller()`` imports only the selected backend. See
+``build_controller()`` (a thin wrapper over
+:py:func:`drone_console.create_controller`) imports only the selected backend. See
 :doc:`../guide/arch` for the startup sequence and :doc:`../api/cli` for the
 function reference.

@@ -70,6 +70,18 @@ Building the documentation
 
 This creates its own ``.venv-docs``; see :doc:`../entry_points/build_docs`.
 
+Web console
+-----------
+
+Either environment can also run the browser console, which needs no extra
+packages:
+
+.. code-block:: bash
+
+   python entry_points/drone_gui.py        # opens http://127.0.0.1:8765/?token=…
+
+See :doc:`../entry_points/drone_gui`.
+
 Checking the install
 --------------------
 

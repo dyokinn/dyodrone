@@ -20,6 +20,11 @@ Unreleased
   ``SET_MODE`` message (:doc:`design_decisions`).
 * **CLI:** lazy backend imports and a Python-version gate for ``dronekit-*``.
 * **GCSProxy.forward()** added so non-DroneKit backends can feed the proxy.
+* **Web console** ``entry_points/drone_gui.py``: a browser GUI with a console
+  prompt, live vehicle info, a Simulator/Pixhawk toggle and Connect/Disconnect.
+  Standard library only; runs on Python 3.7 and 3.12.
+* **Shared module** ``drone_console.py``: ``create_controller()`` and
+  ``handle_command()`` moved out of the CLI so both front ends share them.
 * **Entry points** moved to ``entry_points/``; ``drone_cli.py`` bootstraps
   ``sys.path``.
 * **Documentation** rebuilt as a Sphinx project with the Furo theme

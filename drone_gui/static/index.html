@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dyodrone console</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b23; --panel-2: #1b232d; --line: #263140;
+    --text: #d6dde6; --muted: #8493a5; --accent: #4cc2ff; --accent-ink: #04202e;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --cmd: #4cc2ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6f9; --panel: #ffffff; --panel-2: #eef2f6; --line: #d3dae3;
+      --text: #1c2530; --muted: #5d6b7c; --accent: #0969da; --accent-ink: #ffffff;
+      --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --cmd: #0969da;
+    }
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans);
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font: 600 15px var(--mono); letter-spacing: .02em; }
+  h1 span { color: var(--accent); }
+  .badge {
+    font: 12px var(--mono); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; background: var(--panel-2);
+  }
+  .pill { display: inline-flex; align-items: center; gap: 7px; font: 600 12px var(--mono); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .pill[data-status="connected"] .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .pill[data-status="connecting"] .dot, .pill[data-status="disconnecting"] .dot {
+    background: var(--warn); animation: pulse 1s infinite;
+  }
+  .pill[data-status="error"] .dot, .pill[data-status="offline"] .dot { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .spacer { flex: 1; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; appearance: none; -webkit-appearance: none; width: 0; height: 0; margin: 0; }
+  .seg { position: relative; }
+  .seg label {
+    padding: 6px 14px; cursor: pointer; font: 600 12px var(--mono); color: var(--muted);
+    background: var(--panel-2); user-select: none;
+  }
+  .seg input:checked + label { background: var(--accent); color: var(--accent-ink); }
+  .seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .seg input:disabled + label { cursor: not-allowed; opacity: .6; }
+  .field { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  input[type="text"], input[type="number"] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 9px; font: 13px var(--mono);
+  }
+  input:disabled { opacity: .6; cursor: not-allowed; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #conn { width: 230px; }
+  #gcs { width: 84px; }
+  button {
+    font: 600 13px var(--sans); border-radius: 6px; padding: 7px 16px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+  }
+  button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  main {
+    flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 12px; padding: 12px 16px 16px;
+  }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 0; display: flex; flex-direction: column; }
+  section > h2 {
+    margin: 0; padding: 8px 14px; font: 600 12px var(--mono); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid var(--line);
+  }
+  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; font: 13px/1.5 var(--mono); }
+  .ln { white-space: pre-wrap; word-break: break-word; }
+  .ln .t { color: var(--muted); margin-right: 10px; font-size: 11px; }
+  .ln.cmd { color: var(--cmd); font-weight: 600; }
+  .ln.cmd::before { content: "> "; }
+  .ln.err { color: var(--bad); }
+  .ln.sys { color: var(--muted); font-style: italic; }
+  #busy { padding: 4px 14px; font: 12px var(--mono); color: var(--warn); min-height: 24px; }
+  .prompt { display: flex; align-items: center; gap: 8px; padding: 8px 14px 12px; border-top: 1px solid var(--line); }
+  .prompt b { font-family: var(--mono); color: var(--cmd); }
+  #cmd { flex: 1; font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
+  .chips button { padding: 3px 10px; font: 12px var(--mono); background: var(--panel-2); color: var(--muted); border-color: var(--line); }
+  .chips button:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+  aside { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
+  dl { margin: 0; padding: 10px 14px; display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; font: 13px var(--mono); }
+  dt { color: var(--muted); }
+  dd { margin: 0; word-break: break-word; }
+  .empty { padding: 14px; color: var(--muted); font-size: 13px; }
+  .good { color: var(--ok); } .bad { color: var(--bad); }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; grid-auto-rows: minmax(320px, auto); }
+    #conn { width: 100%; } .field { flex: 1 1 200px; } .spacer { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>dyodrone<span>▸</span>console</h1>
+  <span class="badge" id="family" title="Backend family for this interpreter">—</span>
+  <span class="pill" id="pill" data-status="offline"><span class="dot"></span><span id="pilltext">connecting to server…</span></span>
+  <span class="spacer"></span>
+  <div class="controls">
+    <div class="seg" role="radiogroup" aria-label="Connection mode">
+      <input type="radio" name="mode" id="m-sitl" value="sitl" checked><label for="m-sitl">Simulator</label>
+      <input type="radio" name="mode" id="m-pix" value="pixhawk"><label for="m-pix">Pixhawk</label>
+    </div>
+    <label class="field" id="connfield" hidden>Connection <input type="text" id="conn" spellcheck="false" placeholder="tcp:127.0.0.1:5760 or /dev/ttyUSB0"></label>
+    <label class="field" id="gcsfield">QGC UDP port <input type="number" id="gcs" min="0" max="65535" value="14550" title="0 disables the QGroundControl proxy"></label>
+    <button id="toggle" disabled>Connect</button>
+  </div>
+</header>
+<main>
+  <section aria-label="Console">
+    <h2>Console</h2>
+    <div id="log" role="log" aria-live="polite"></div>
+    <div id="busy"></div>
+    <form class="prompt" id="form" autocomplete="off">
+      <b>&gt;</b>
+      <input type="text" id="cmd" spellcheck="false" autocapitalize="off" placeholder="help" aria-label="Command" disabled>
+    </form>
+    <div class="chips" id="chips"></div>
+  </section>
+  <aside>
+    <section aria-label="Vehicle">
+      <h2>Vehicle</h2>
+      <div id="vehicle"><div class="empty">Not connected.</div></div>
+    </section>
+    <section aria-label="Connection">
+      <h2>Connection</h2>
+      <div id="details"><div class="empty">—</div></div>
+    </section>
+  </aside>
+</main>
+<script>
+(function () {
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var token = params.get("token");
+  try {
+    if (token) { sessionStorage.setItem("dyodrone-token", token); history.replaceState(null, "", location.pathname); }
+    else { token = sessionStorage.getItem("dyodrone-token") || ""; }
+  } catch (e) { token = token || ""; }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var logEl = $("log"), cmdEl = $("cmd"), toggleBtn = $("toggle"), pill = $("pill");
+  var lastId = 0, status = "offline", firstState = true, history_ = [], histPos = 0, draft = "";
+
+  function api(path, body) {
+    var opts = { headers: { "X-Token": token } };
+    if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    return fetch(path, opts).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || r.statusText); e.status = r.status; throw e; } return j; });
+    });
+  }
+
+  function addLine(kind, text, ts) {
+    var near = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    var d = document.createElement("div"); d.className = "ln " + kind;
+    if (ts) { var t = document.createElement("span"); t.className = "t"; t.textContent = new Date(ts * 1000).toTimeString().slice(0, 8); d.appendChild(t); }
+    d.appendChild(document.createTextNode(text));
+    logEl.appendChild(d);
+    if (near) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function rows(el, lines, emptyText) {
+    el.textContent = "";
+    var pairs = [];
+    lines.forEach(function (l) {
+      if (/^=+ .* =+$/.test(l)) return;
+      var i = l.indexOf(": ");
+      pairs.push(i > 0 ? [l.slice(0, i), l.slice(i + 2)] : ["", l]);
+    });
+    if (!pairs.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = emptyText; el.appendChild(e); return; }
+    var dl = document.createElement("dl");
+    pairs.forEach(function (p) {
+      var dt = document.createElement("dt"), dd = document.createElement("dd");
+      dt.textContent = p[0]; dd.textContent = p[1];
+      if (p[0] === "Armed") dd.className = p[1] === "True" ? "good" : "";
+      dl.appendChild(dt); dl.appendChild(dd);
+    });
+    el.appendChild(dl);
+  }
+
+  function setPill(s, text) { pill.dataset.status = s; $("pilltext").textContent = text; }
+
+  function selectedMode() { return document.querySelector('input[name="mode"]:checked').value; }
+
+  function applyMode() {
+    var pix = selectedMode() === "pixhawk";
+    $("connfield").hidden = !pix; $("gcsfield").hidden = pix;
+  }
+
+  function render(s) {
+    status = s.status;
+    $("family").textContent = s.family + " · Python " + s.python;
+    setPill(s.status, s.status + (s.status === "connected" ? " · " + s.mode : ""));
+    var idle = s.status === "disconnected" || s.status === "error";
+    var locked = !idle;
+    document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.disabled = locked; });
+    $("conn").disabled = locked; $("gcs").disabled = locked;
+    if (firstState || locked) {
+      document.querySelector('input[name="mode"][value="' + s.mode + '"]').checked = true;
+      $("conn").value = s.connection; $("gcs").value = s.gcs_port; applyMode();
+    }
+    firstState = false;
+    toggleBtn.disabled = s.status === "connecting" || s.status === "disconnecting";
+    toggleBtn.textContent = s.status === "connected" ? "Disconnect" : s.status === "connecting" ? "Connecting…" : s.status === "disconnecting" ? "Disconnecting…" : "Connect";
+    toggleBtn.className = s.status === "connected" ? "secondary" : "";
+    cmdEl.disabled = false;
+    $("busy").textContent = s.busy ? "running: " + s.busy + (s.queued ? "  (+" + s.queued + " queued)" : "") + " …" : "";
+    rows($("vehicle"), s.telemetry, s.status === "connected" ? "Waiting for telemetry…" : "Not connected.");
+    rows($("details"), s.details, "—");
+    s.log.forEach(function (e) { addLine(e.kind, e.text, e.ts); });
+    lastId = s.last_id;
+  }
+
+  function poll() {
+    api("/api/state?since=" + lastId).then(render).catch(function (e) {
+      if (e.status === 403) setPill("error", "invalid token — reopen the URL printed in the terminal");
+      else setPill("offline", "server unreachable");
+      toggleBtn.disabled = true;
+    });
+  }
+
+  function send(line) {
+    api("/api/command", { line: line }).then(poll).catch(function (e) { addLine("err", e.message); });
+  }
+
+  document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", applyMode); });
+
+  toggleBtn.addEventListener("click", function () {
+    var p = status === "connected"
+      ? api("/api/disconnect", {})
+      : api("/api/connect", { mode: selectedMode(), connection: $("conn").value, gcs_port: $("gcs").value });
+    p.then(poll).catch(function (e) { addLine("err", e.message); });
+  });
+
+  $("form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var line = cmdEl.value.trim(); cmdEl.value = "";
+    if (!line) return;
+    if (history_[history_.length - 1] !== line) history_.push(line);
+    histPos = history_.length; draft = "";
+    if (line.toLowerCase() === "clear") { logEl.textContent = ""; return; }
+    send(line);
+  });
+
+  cmdEl.addEventListener("keydown", function (ev) {
+    if (ev.key === "ArrowUp" && history_.length) {
+      if (histPos === history_.length) draft = cmdEl.value;
+      histPos = Math.max(0, histPos - 1); cmdEl.value = history_[histPos]; ev.preventDefault();
+    } else if (ev.key === "ArrowDown" && histPos < history_.length) {
+      histPos += 1; cmdEl.value = histPos === history_.length ? draft : history_[histPos]; ev.preventDefault();
+    } else if (ev.key === "l" && ev.ctrlKey) { logEl.textContent = ""; ev.preventDefault(); }
+  });
+
+  ["takeoff 10", "altitude 15", "forward 5", "back 5", "left 90", "right 90", "land", "info", "help"].forEach(function (c) {
+    var b = document.createElement("button"); b.type = "button"; b.textContent = c;
+    b.title = "Fill the prompt (press Enter to send)";
+    b.addEventListener("click", function () { cmdEl.value = c; cmdEl.focus(); });
+    $("chips").appendChild(b);
+  });
+
+  applyMode(); poll(); setInterval(poll, 1000); cmdEl.focus();
+})();
+</script>
+</body>
+</html>

@@ -33,16 +33,16 @@ interpreter discovery and orphan-process handling for no benefit.
 Lazy backend imports plus a version gate in the CLI
 ---------------------------------------------------
 
-*Decision.* ``build_controller()`` imports a backend only inside the branch
-that selects it, and ``dronekit-*`` backends exit with an explanatory message
-on Python ≥ 3.10.
+*Decision.* ``create_controller()`` imports a backend only inside the branch
+that selects it, and ``dronekit-*`` backends raise ``BackendUnavailable`` with
+an explanatory message on Python ≥ 3.10 (the CLI turns it into an exit
+message, the web console into a red console line).
 
 *Why.* Importing all controllers at the top of the file meant a single
 ``from dronekit import …`` broke the whole CLI on new Pythons, even for
 backends that never use DroneKit.
 
-*Where.* ``entry_points/drone_cli.py`` (``build_controller``,
-``_require_python37``).
+*Where.* ``drone_console.py`` (``create_controller``, ``require_python37``).
 
 Legacy ``SET_MODE`` instead of ``set_mode_apm()``
 -------------------------------------------------
@@ -106,3 +106,56 @@ needed because ``dyopilot_version`` ORs ``mavutil`` constants at import time,
 which a mock cannot do.
 
 *Where.* ``docs/conf.py``.
+
+Front-end logic lives in one shared module
+------------------------------------------
+
+*Decision.* ``handle_command()``, ``create_controller()`` and the backend
+tables were moved out of ``entry_points/drone_cli.py`` into ``drone_console.py``,
+which imports no UI toolkit.
+
+*Why.* The curses CLI and the web console must behave identically; copying the
+command parser would let them drift. The unusable-backend case became an
+exception (``BackendUnavailable``) rather than ``SystemExit`` because a worker
+thread silently swallows ``SystemExit``.
+
+*Where.* ``drone_console.py``.
+
+A local web page instead of a desktop toolkit
+---------------------------------------------
+
+*Decision.* The GUI is a browser page served by ``http.server`` from the
+standard library, not tkinter or Qt.
+
+*Why.* Checked on the development machine: ``tkinter`` was available only in
+the Python 3.7 interpreter; the 3.12 environments had no ``_tkinter``. Qt would
+add a large dependency and not support 3.7. A stdlib server and a single HTML
+file run unchanged in both environments, so both backend families get a GUI.
+
+*Where.* ``drone_gui/``, ``entry_points/drone_gui.py``.
+
+Token, Host and Origin checks on the GUI API
+--------------------------------------------
+
+*Decision.* Every ``/api/*`` call needs a random per-run token, a ``Host``
+matching the bound address and, if present, a matching ``Origin``.
+
+*Why.* The endpoints command a vehicle. Without these checks any other page
+open in the browser could POST to ``localhost`` (cross-site request forgery) or
+use DNS rebinding to reach the server.
+
+*Where.* ``drone_gui/server.py``.
+
+A command worker thread with polling
+------------------------------------
+
+*Decision.* Connecting, ``takeoff`` and disconnecting run on background
+threads; commands share one ordered queue; the page polls ``/api/state`` every
+second.
+
+*Why.* Booting a simulator takes tens of seconds and ``takeoff`` blocks until
+the vehicle is armed, so requests must return immediately. A single queue keeps
+commands in order. Polling avoids websockets, which the standard library does
+not provide.
+
+*Where.* ``drone_gui/session.py``.
