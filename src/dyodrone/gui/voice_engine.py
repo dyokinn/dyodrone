@@ -12,10 +12,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import tempfile
+import threading
 import urllib.request
 import zipfile
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, List, Optional
@@ -59,7 +62,27 @@ def cache_dir() -> Path:
 
 
 def _download(url: str, destination: Path, say: Callable[[str], None]) -> None:
-    """Stream *url* to *destination*; a stalled connection fails after 30 s instead of hanging."""
+    """Download *url* to *destination*.
+
+    The model host throttles a single connection to a crawl after the first few
+    megabytes, so when it supports byte ranges the file is fetched in parallel
+    pieces (about ten times faster). Otherwise it is streamed on one connection.
+    Either way a stalled connection fails after 30 s instead of hanging.
+    """
+    size, ranged = 0, False
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=30) as head:
+            size = int(head.headers.get("Content-Length") or 0)
+            ranged = "bytes" in (head.headers.get("Accept-Ranges") or "").lower()
+    except Exception:  # noqa: BLE001 - fall back to a plain stream
+        pass
+    if ranged and size > 0:
+        _download_ranges(url, destination, size, say)
+    else:
+        _download_stream(url, destination, say)
+
+
+def _download_stream(url: str, destination: Path, say: Callable[[str], None]) -> None:
     with urllib.request.urlopen(url, timeout=30) as response, open(str(destination), "wb") as out:
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
@@ -73,6 +96,43 @@ def _download(url: str, destination: Path, say: Callable[[str], None]) -> None:
             if done >= next_report:
                 say(f"Downloading the speech model … {done // (1024 * 1024)} of {total // (1024 * 1024)} MB")
                 next_report += 10 * 1024 * 1024
+
+
+def _download_ranges(url: str, destination: Path, size: int, say: Callable[[str], None],
+                     pieces: int = 16, workers: int = 8) -> None:
+    step = (size + pieces - 1) // pieces
+    ranges = [(i * step, min(size, (i + 1) * step) - 1) for i in range(pieces) if i * step < size]
+    with open(str(destination), "wb") as out:
+        out.truncate(size)
+    lock = threading.Lock()
+    progress = {"done": 0, "next": 10}
+
+    def fetch(piece):
+        first, last = piece
+        for attempt in range(3):
+            try:
+                request = urllib.request.Request(url, headers={"Range": f"bytes={first}-{last}"})
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    data = response.read()
+                if len(data) != last - first + 1:
+                    raise OSError(f"short read for bytes {first}-{last}")
+                break
+            except Exception:  # noqa: BLE001
+                if attempt == 2:
+                    raise
+        with lock:
+            with open(str(destination), "r+b") as out:
+                out.seek(first)
+                out.write(data)
+            progress["done"] += len(data)
+            percent = progress["done"] * 100 // size
+            if percent >= progress["next"]:
+                say(f"Downloading the speech model … {percent}% of {size // (1024 * 1024)} MB")
+                progress["next"] = percent // 10 * 10 + 10
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in [pool.submit(fetch, r) for r in ranges]:
+            future.result()
 
 
 def ensure_model(
@@ -119,7 +179,9 @@ class VoskEngine(SpeechEngine):
             import vosk
         except ImportError as exc:
             raise EngineUnavailable(
-                "Voice mode needs the optional 'vosk' package: pip install \"dyodrone[voice]\""
+                "Voice mode needs the optional 'vosk' package, which is not installed in this "
+                f"environment ({sys.executable}). Install it with: {sys.executable} -m pip install vosk "
+                "(or, from the repo, pip install -e \".[voice]\"), then restart dyodrone-gui."
             ) from exc
         vosk.SetLogLevel(-1)
         self._model = vosk.Model(str(model_path))

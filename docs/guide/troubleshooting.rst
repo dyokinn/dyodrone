@@ -121,12 +121,15 @@ Console and voice commands are refused while a plan runs
 Voice
 -----
 
-"Voice input unavailable: … vosk"
-   Install the optional package: ``pip install "dyodrone[voice]"`` in the same
-   environment as ``dyodrone-gui``.
+"Voice input unavailable: Voice mode needs the optional 'vosk' package …"
+   The environment running ``dyodrone-gui`` does not have ``vosk``. The message names
+   the interpreter; install it there (``<that python> -m pip install vosk``, or
+   ``pip install -e ".[voice]"`` from the repo) and **restart** ``dyodrone-gui``.
+   ``runners/launch_web.sh`` installs it for you.
 
 "Could not download the speech model"
-   The first use downloads about 40 MB. Download
+   The first use downloads about 40 MB (in parallel pieces; progress is shown in the
+   console). Download
    ``vosk-model-small-en-us-0.15.zip`` yourself, unzip it, and start with
    ``dyodrone-gui --vosk-model /path/to/vosk-model-small-en-us-0.15``.
 

@@ -30,9 +30,11 @@ Setup
    pip install -e ".[dyopilot,voice]"       # adds the vosk package
    dyodrone-gui                              # then switch Voice on
 
-The first time you switch Voice on, the small English model
-(``vosk-model-small-en-us-0.15``, about 40 MB) is downloaded once to
-``~/.cache/dyodrone/vosk`` (set ``DYODRONE_CACHE`` to move it). Already have it?
+``runners/launch_web.sh`` does this for you. The first time you switch Voice on,
+the small English model (``vosk-model-small-en-us-0.15``, about 40 MB) is
+downloaded once to ``~/.cache/dyodrone/vosk`` (set ``DYODRONE_CACHE`` to move it);
+progress appears in the console, and it takes a few seconds to a few minutes
+depending on your connection. Already have it?
 Start with ``dyodrone-gui --vosk-model /path/to/model``. If Vosk or the model is
 unavailable, the Voice switch turns itself back off and the console says why.
 

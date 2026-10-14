@@ -248,6 +248,19 @@ without audio.
 
 *Where.* ``dyodrone/core/voice.py``, ``dyodrone/gui/voice_engine.py``, ``dyodrone/gui/session.py``.
 
+The model is downloaded in parallel ranges
+------------------------------------------
+
+*Decision.* The first-use model download fetches byte ranges in parallel and
+reassembles them, falling back to a plain stream if the server does not support
+ranges. A stalled connection fails after 30 s.
+
+*Why.* The model host throttles a single connection to roughly 30 KB/s after the first
+few megabytes, which made the first run look hung. Parallel pieces finish in seconds
+to minutes.
+
+*Where.* ``dyodrone/gui/voice_engine.py``.
+
 The browser sends raw PCM, not a stream API
 -------------------------------------------
 

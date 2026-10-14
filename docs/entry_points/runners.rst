@@ -20,7 +20,8 @@ the first time.
        ``--`` go to pytest, e.g. ``-- -k gui -x``.
    * - ``runners/launch_web.sh``
      - Starts the web console (``dyodrone-gui``) on Python 3.12 with the dyopilot
-       driver; ``--dronekit`` uses a Python 3.7 environment instead. Other
+       driver **and voice mode** (it installs the ``dyopilot`` and ``voice``
+       extras); ``--dronekit`` uses a Python 3.7 environment instead. Other
        options go to ``dyodrone-gui`` (``--port 9000``, ``--no-browser``).
 
 .. code-block:: bash
