@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dyodrone console</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b23; --panel-2: #1b232d; --line: #263140;
+    --text: #d6dde6; --muted: #8493a5; --accent: #4cc2ff; --accent-ink: #04202e;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --cmd: #4cc2ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6f9; --panel: #ffffff; --panel-2: #eef2f6; --line: #d3dae3;
+      --text: #1c2530; --muted: #5d6b7c; --accent: #0969da; --accent-ink: #ffffff;
+      --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --cmd: #0969da;
+    }
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans);
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font: 600 15px var(--mono); letter-spacing: .02em; }
+  h1 span { color: var(--accent); }
+  .badge {
+    font: 12px var(--mono); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; background: var(--panel-2);
+  }
+  .pill { display: inline-flex; align-items: center; gap: 7px; font: 600 12px var(--mono); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .pill[data-status="connected"] .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .pill[data-status="connecting"] .dot, .pill[data-status="disconnecting"] .dot {
+    background: var(--warn); animation: pulse 1s infinite;
+  }
+  .pill[data-status="error"] .dot, .pill[data-status="offline"] .dot { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .spacer { flex: 1; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; appearance: none; -webkit-appearance: none; width: 0; height: 0; margin: 0; }
+  .seg { position: relative; }
+  .seg label {
+    padding: 6px 14px; cursor: pointer; font: 600 12px var(--mono); color: var(--muted);
+    background: var(--panel-2); user-select: none;
+  }
+  .seg input:checked + label { background: var(--accent); color: var(--accent-ink); }
+  .seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .seg input:disabled + label { cursor: not-allowed; opacity: .6; }
+  .field { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  input[type="text"], input[type="number"] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 9px; font: 13px var(--mono);
+  }
+  input:disabled { opacity: .6; cursor: not-allowed; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #conn { width: 230px; }
+  #gcs { width: 84px; }
+  button {
+    font: 600 13px var(--sans); border-radius: 6px; padding: 7px 16px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+  }
+  button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  main {
+    flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 12px; padding: 12px 16px 16px;
+  }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 0; display: flex; flex-direction: column; }
+  section > h2 {
+    margin: 0; padding: 8px 14px; font: 600 12px var(--mono); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid var(--line);
+  }
+  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; font: 13px/1.5 var(--mono); }
+  .ln { white-space: pre-wrap; word-break: break-word; }
+  .ln .t { color: var(--muted); margin-right: 10px; font-size: 11px; }
+  .ln.cmd { color: var(--cmd); font-weight: 600; }
+  .ln.cmd::before { content: "> "; }
+  .ln.err { color: var(--bad); }
+  .ln.sys { color: var(--muted); font-style: italic; }
+  #busy { padding: 4px 14px; font: 12px var(--mono); color: var(--warn); min-height: 24px; }
+  .prompt { display: flex; align-items: center; gap: 8px; padding: 8px 14px 12px; border-top: 1px solid var(--line); }
+  .prompt b { font-family: var(--mono); color: var(--cmd); }
+  #cmd { flex: 1; font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
+  .chips button { padding: 3px 10px; font: 12px var(--mono); background: var(--panel-2); color: var(--muted); border-color: var(--line); }
+  .chips button:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+  aside { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
+  dl { margin: 0; padding: 10px 14px; display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; font: 13px var(--mono); }
+  dt { color: var(--muted); }
+  dd { margin: 0; word-break: break-word; }
+  .empty { padding: 14px; color: var(--muted); font-size: 13px; }
+  .good { color: var(--ok); } .bad { color: var(--bad); }
+  .inputsbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px;
+    background: var(--panel-2); border-bottom: 1px solid var(--line);
+  }
+  .inputsbar .lbl { font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .sw {
+    display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 8px; border-radius: 999px;
+    background: var(--panel); color: var(--muted); border: 1px solid var(--line); font: 600 12px var(--mono);
+  }
+  .sw .knob { width: 26px; height: 14px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; }
+  .sw .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+  .sw[aria-checked="true"] { color: var(--text); border-color: var(--accent); }
+  .sw[aria-checked="true"] .knob { background: var(--accent); }
+  .sw[aria-checked="true"] .knob::after { transform: translateX(12px); background: var(--accent-ink); }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; padding: 5px 14px; }
+  .small { padding: 4px 10px; font: 600 12px var(--sans); }
+  .planbar, .planrun { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 0; align-items: center; }
+  .planrun { padding-bottom: 10px; }
+  #plan-text {
+    width: calc(100% - 28px); margin: 10px 14px 0; min-height: 120px; resize: vertical; background: var(--bg);
+    color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 12px/1.5 var(--mono);
+  }
+  #plan-steps { list-style: none; margin: 0; padding: 0 14px 10px; font: 12px var(--mono); }
+  #plan-steps li { display: grid; grid-template-columns: 1.4em 1fr; gap: 0 6px; padding: 3px 0; border-top: 1px dashed var(--line); }
+  #plan-steps li.current { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  #plan-steps .d { grid-column: 2; color: var(--muted); font-size: 11px; word-break: break-word; }
+  #plan-steps .st-done .i { color: var(--ok); } #plan-steps .st-failed { color: var(--bad); }
+  #plan-steps .st-waiting .i, #plan-steps .st-sending .i { color: var(--warn); }
+  #plan-msg { padding: 0 14px 10px; font: 12px var(--mono); color: var(--muted); min-height: 1em; }
+  #plan-msg.bad { color: var(--bad); }
+  section.off .planbar, section.off .planrun, section.off #plan-text { opacity: .45; pointer-events: none; }
+  .hint { padding: 8px 14px 0; color: var(--muted); font-size: 12px; }
+  .ln.voice { color: #b48ead; }
+  .ln.plan { color: var(--text); }
+  #voice-status { padding: 10px 14px 0; font: 12px var(--mono); color: var(--muted); }
+  #voice-status.live { color: var(--ok); } #voice-status.bad { color: var(--bad); }
+  #voice-status.live::before { content: "● "; animation: pulse 1.2s infinite; }
+  #voice-partial { padding: 4px 14px 0; min-height: 1.4em; font: italic 13px var(--mono); color: var(--accent); }
+  #voice-pending { list-style: none; margin: 0; padding: 4px 14px 0; font: 12px var(--mono); }
+  #voice-pending li { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  #voice-pending .cmd { flex: 1; } #voice-pending .t { color: var(--warn); }
+  #voice-panel .planrun { padding-top: 6px; }
+  section.off #voice-status, section.off #voice-partial, section.off #voice-pending, section.off .voicehelp { opacity: .45; }
+  .voicehelp { padding: 0 14px 12px; color: var(--muted); font: 11px var(--mono); }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; grid-auto-rows: minmax(320px, auto); }
+    #conn { width: 100%; } .field { flex: 1 1 200px; } .spacer { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>dyodrone<span>▸</span>console</h1>
+  <span class="badge" id="driver" title="Driver (flight-control library) for this interpreter">—</span>
+  <span class="pill" id="pill" data-status="offline"><span class="dot"></span><span id="pilltext">connecting to server…</span></span>
+  <span class="spacer"></span>
+  <div class="controls">
+    <div class="seg" role="radiogroup" aria-label="Connection target">
+      <input type="radio" name="target" id="m-sitl" value="sitl" checked><label for="m-sitl">Simulator</label>
+      <input type="radio" name="target" id="m-pix" value="pixhawk"><label for="m-pix">Pixhawk</label>
+    </div>
+    <label class="field" id="connfield" hidden>Connection <input type="text" id="conn" spellcheck="false" placeholder="tcp:127.0.0.1:5760 or /dev/ttyUSB0"></label>
+    <label class="field" id="gcsfield">QGC UDP port <input type="number" id="gcs" min="0" max="65535" value="14550" title="0 disables the QGroundControl proxy"></label>
+    <button id="toggle" disabled>Connect</button>
+  </div>
+</header>
+<div class="inputsbar" role="group" aria-label="Input types">
+  <span class="lbl">Inputs</span>
+  <button type="button" class="sw" id="sw-console" role="switch" aria-checked="true" title="Type commands at the console prompt"><span class="knob"></span>Console</button>
+  <button type="button" class="sw" id="sw-plan" role="switch" aria-checked="false" title="Run flight plans"><span class="knob"></span>Plan</button>
+  <button type="button" class="sw" id="sw-voice" role="switch" aria-checked="false" title="Voice commands"><span class="knob"></span>Voice</button>
+  <span class="spacer"></span>
+  <button type="button" class="danger" id="land-now" disabled title="Stops any plan and lands immediately, whatever the switches say">Land now</button>
+</div>
+<main>
+  <section aria-label="Console">
+    <h2>Console</h2>
+    <div id="log" role="log" aria-live="polite"></div>
+    <div id="busy"></div>
+    <form class="prompt" id="form" autocomplete="off">
+      <b>&gt;</b>
+      <input type="text" id="cmd" spellcheck="false" autocapitalize="off" placeholder="help" aria-label="Command" disabled>
+    </form>
+    <div class="chips" id="chips"></div>
+  </section>
+  <aside>
+    <section aria-label="Vehicle">
+      <h2>Vehicle</h2>
+      <div id="vehicle"><div class="empty">Not connected.</div></div>
+    </section>
+    <section aria-label="Connection">
+      <h2>Connection</h2>
+      <div id="details"><div class="empty">—</div></div>
+    </section>
+    <section aria-label="Voice" id="voice-panel" class="off">
+      <h2>Voice</h2>
+      <div id="voice-status">Voice input is off.</div>
+      <div id="voice-partial" aria-live="polite"></div>
+      <ul id="voice-pending"></ul>
+      <div class="planrun"><button type="button" class="small secondary" id="voice-cancel-all" disabled>Cancel all</button></div>
+      <div class="voicehelp">Say: takeoff ten · altitude fifteen · forward five · back five · left ninety · right ninety · land. Commands run after a short cancel window; land runs at once.</div>
+    </section>
+    <section aria-label="Flight plan" id="plan-panel" class="off">
+      <h2>Flight plan</h2>
+      <div class="planbar">
+        <label class="small secondary" style="cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:4px 10px;color:var(--text)">Upload .txt<input type="file" id="plan-file" accept=".txt,text/plain" hidden></label>
+        <button type="button" class="small secondary" id="plan-log" title="Fill with the commands you ran successfully this session">From log</button>
+        <button type="button" class="small secondary" id="plan-dl">Download</button>
+        <button type="button" class="small secondary" id="plan-validate">Validate</button>
+      </div>
+      <textarea id="plan-text" spellcheck="false" aria-label="Flight plan text" placeholder="# one command per line&#10;takeoff 10&#10;forward 20&#10;right 90&#10;land"></textarea>
+      <div class="planrun">
+        <button type="button" class="small" id="plan-run" disabled>Run</button>
+        <button type="button" class="small secondary" id="plan-pause" disabled>Pause</button>
+        <button type="button" class="small secondary" id="plan-stop" disabled>Stop</button>
+        <span id="plan-state" class="hint" style="padding:0"></span>
+      </div>
+      <div id="plan-msg"></div>
+      <ol id="plan-steps"></ol>
+    </section>
+  </aside>
+</main>
+<script>
+(function () {
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var token = params.get("token");
+  try {
+    if (token) { sessionStorage.setItem("dyodrone-token", token); history.replaceState(null, "", location.pathname); }
+    else { token = sessionStorage.getItem("dyodrone-token") || ""; }
+  } catch (e) { token = token || ""; }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var logEl = $("log"), cmdEl = $("cmd"), toggleBtn = $("toggle"), pill = $("pill");
+  var lastId = 0, status = "offline", firstState = true, history_ = [], histPos = 0, draft = "";
+
+  function api(path, body) {
+    var opts = { headers: { "X-Token": token } };
+    if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    return fetch(path, opts).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || r.statusText); e.status = r.status; e.errors = j.errors; throw e; } return j; });
+    });
+  }
+
+  function addLine(kind, text, ts) {
+    var near = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    var d = document.createElement("div"); d.className = "ln " + kind;
+    if (ts) { var t = document.createElement("span"); t.className = "t"; t.textContent = new Date(ts * 1000).toTimeString().slice(0, 8); d.appendChild(t); }
+    d.appendChild(document.createTextNode(text));
+    logEl.appendChild(d);
+    if (near) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function rows(el, lines, emptyText) {
+    el.textContent = "";
+    var pairs = [];
+    lines.forEach(function (l) {
+      if (/^=+ .* =+$/.test(l)) return;
+      var i = l.indexOf(": ");
+      pairs.push(i > 0 ? [l.slice(0, i), l.slice(i + 2)] : ["", l]);
+    });
+    if (!pairs.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = emptyText; el.appendChild(e); return; }
+    var dl = document.createElement("dl");
+    pairs.forEach(function (p) {
+      var dt = document.createElement("dt"), dd = document.createElement("dd");
+      dt.textContent = p[0]; dd.textContent = p[1];
+      if (p[0] === "Armed") dd.className = p[1] === "True" ? "good" : "";
+      dl.appendChild(dt); dl.appendChild(dd);
+    });
+    el.appendChild(dl);
+  }
+
+  function setPill(s, text) { pill.dataset.status = s; $("pilltext").textContent = text; }
+
+  function selectedTarget() { return document.querySelector('input[name="target"]:checked').value; }
+
+  function applyMode() {
+    var pix = selectedTarget() === "pixhawk";
+    $("connfield").hidden = !pix; $("gcsfield").hidden = pix;
+  }
+
+  function render(s) {
+    status = s.status;
+    $("driver").textContent = s.driver + " · Python " + s.python;
+    setPill(s.status, s.status + (s.status === "connected" ? " · " + s.target : ""));
+    var idle = s.status === "disconnected" || s.status === "error";
+    var locked = !idle;
+    document.querySelectorAll('input[name="target"]').forEach(function (r) { r.disabled = locked; });
+    $("conn").disabled = locked; $("gcs").disabled = locked;
+    if (firstState || locked) {
+      document.querySelector('input[name="target"][value="' + s.target + '"]').checked = true;
+      $("conn").value = s.connection; $("gcs").value = s.gcs_port; applyMode();
+    }
+    firstState = false;
+    toggleBtn.disabled = s.status === "connecting" || s.status === "disconnecting";
+    toggleBtn.textContent = s.status === "connected" ? "Disconnect" : s.status === "connecting" ? "Connecting…" : s.status === "disconnecting" ? "Disconnecting…" : "Connect";
+    toggleBtn.className = s.status === "connected" ? "secondary" : "";
+    var locked_plan = s.plan && (s.plan.state === "running" || s.plan.state === "paused");
+    var typing = s.inputs.console && !locked_plan;
+    cmdEl.disabled = !typing;
+    cmdEl.placeholder = !s.inputs.console ? "Console input is off" : locked_plan ? "Locked while a flight plan runs" : "help";
+    document.querySelectorAll("#chips button").forEach(function (b) { b.disabled = !typing; });
+    renderInputs(s);
+    renderPlan(s);
+    renderVoice(s);
+    $("busy").textContent = s.busy ? "running: " + s.busy + (s.queued ? "  (+" + s.queued + " queued)" : "") + " …" : "";
+    rows($("vehicle"), s.telemetry, s.status === "connected" ? "Waiting for telemetry…" : "Not connected.");
+    rows($("details"), s.details, "—");
+    s.log.forEach(function (e) { addLine(e.kind, e.text, e.ts); });
+    lastId = s.last_id;
+  }
+
+  function poll() {
+    api("/api/state?since=" + lastId).then(render).catch(function (e) {
+      if (e.status === 403) setPill("error", "invalid token — reopen the URL printed in the terminal");
+      else setPill("offline", "server unreachable");
+      toggleBtn.disabled = true;
+    });
+  }
+
+  function send(line) {
+    api("/api/command", { line: line }).then(poll).catch(function (e) { addLine("err", e.message); });
+  }
+
+  document.querySelectorAll('input[name="target"]').forEach(function (r) { r.addEventListener("change", applyMode); });
+
+  toggleBtn.addEventListener("click", function () {
+    var p = status === "connected"
+      ? api("/api/disconnect", {})
+      : api("/api/connect", { target: selectedTarget(), connection: $("conn").value, gcs_port: $("gcs").value });
+    p.then(poll).catch(function (e) { addLine("err", e.message); });
+  });
+
+  $("form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var line = cmdEl.value.trim(); cmdEl.value = "";
+    if (!line) return;
+    if (history_[history_.length - 1] !== line) history_.push(line);
+    histPos = history_.length; draft = "";
+    if (line.toLowerCase() === "clear") { logEl.textContent = ""; return; }
+    send(line);
+  });
+
+  cmdEl.addEventListener("keydown", function (ev) {
+    if (ev.key === "ArrowUp" && history_.length) {
+      if (histPos === history_.length) draft = cmdEl.value;
+      histPos = Math.max(0, histPos - 1); cmdEl.value = history_[histPos]; ev.preventDefault();
+    } else if (ev.key === "ArrowDown" && histPos < history_.length) {
+      histPos += 1; cmdEl.value = histPos === history_.length ? draft : history_[histPos]; ev.preventDefault();
+    } else if (ev.key === "l" && ev.ctrlKey) { logEl.textContent = ""; ev.preventDefault(); }
+  });
+
+  ["takeoff 10", "altitude 15", "forward 5", "back 5", "left 90", "right 90", "land", "info", "help"].forEach(function (c) {
+    var b = document.createElement("button"); b.type = "button"; b.textContent = c;
+    b.title = "Fill the prompt (press Enter to send)";
+    b.addEventListener("click", function () { cmdEl.value = c; cmdEl.focus(); });
+    $("chips").appendChild(b);
+  });
+
+  var inputsState = { console: true, plan: false, voice: false };
+  var planDirty = false, lastPlanState = "idle";
+
+  function renderInputs(s) {
+    inputsState = s.inputs;
+    ["console", "plan", "voice"].forEach(function (k) { $("sw-" + k).setAttribute("aria-checked", s.inputs[k] ? "true" : "false"); });
+    $("land-now").disabled = s.status !== "connected";
+  }
+
+  var ICON = { pending: "○", sending: "…", waiting: "◔", done: "✓", failed: "✗" };
+
+  function renderPlan(s) {
+    var plan = s.plan, on = s.inputs.plan, running = plan.state === "running", paused = plan.state === "paused";
+    $("plan-panel").classList.toggle("off", !on);
+    $("plan-text").readOnly = running || paused;
+    $("plan-run").disabled = !(on && s.status === "connected" && !running && !paused);
+    $("plan-pause").disabled = !(running || paused);
+    $("plan-pause").textContent = paused ? "Resume" : "Pause";
+    $("plan-stop").disabled = !(running || paused);
+    $("plan-log").textContent = s.history ? "From log (" + s.history + ")" : "From log";
+    $("plan-state").textContent = plan.total ? plan.state + (plan.index >= 0 ? " · step " + (plan.index + 1) + "/" + plan.total : "") : "";
+    if (plan.message && (plan.state === "failed" || plan.state === "stopped" || plan.state === "done")) {
+      $("plan-msg").textContent = plan.message; $("plan-msg").className = plan.state === "failed" ? "bad" : "";
+    } else if (plan.state !== lastPlanState && plan.state === "running") { $("plan-msg").textContent = ""; }
+    lastPlanState = plan.state;
+    var ol = $("plan-steps"); ol.textContent = "";
+    plan.steps.forEach(function (st, i) {
+      var li = document.createElement("li"); li.className = "st-" + st.state + (i === plan.index && (running || paused) ? " current" : "");
+      var ic = document.createElement("span"); ic.className = "i"; ic.textContent = ICON[st.state] || "○";
+      var tx = document.createElement("span"); tx.textContent = st.command;
+      li.appendChild(ic); li.appendChild(tx);
+      if (st.detail) { var d = document.createElement("span"); d.className = "d"; d.textContent = st.detail; li.appendChild(d); }
+      ol.appendChild(li);
+    });
+  }
+
+  function planMessage(text, bad) { $("plan-msg").textContent = text; $("plan-msg").className = bad ? "bad" : ""; }
+
+  function validatePlan() {
+    return api("/api/plan", { text: $("plan-text").value }).then(function (r) {
+      planMessage(r.steps.length + " steps OK", false); return true;
+    }).catch(function (e) {
+      var detail = e.errors ? e.errors.map(function (x) { return (x.line ? "line " + x.line + ": " : "") + x.message; }).join("\n") : e.message;
+      planMessage(detail, true); return false;
+    }).then(function (ok) { poll(); return ok; });
+  }
+
+  ["console", "plan", "voice"].forEach(function (k) {
+    $("sw-" + k).addEventListener("click", function () {
+      var body = {}; body[k] = !inputsState[k];
+      api("/api/inputs", body).then(poll).catch(function (e) { addLine("err", e.message); });
+    });
+  });
+  $("land-now").addEventListener("click", function () {
+    api("/api/emergency", {}).then(poll).catch(function (e) { addLine("err", e.message); });
+  });
+  $("plan-validate").addEventListener("click", validatePlan);
+  $("plan-run").addEventListener("click", function () {
+    validatePlan().then(function (ok) {
+      if (!ok) return;
+      api("/api/plan/run", {}).then(poll).catch(function (e) { planMessage(e.message, true); });
+    });
+  });
+  $("plan-pause").addEventListener("click", function () {
+    api("/api/plan/" + ($("plan-pause").textContent === "Resume" ? "resume" : "pause"), {}).then(poll).catch(function (e) { planMessage(e.message, true); });
+  });
+  $("plan-stop").addEventListener("click", function () { api("/api/plan/stop", {}).then(poll).catch(function (e) { planMessage(e.message, true); }); });
+  $("plan-log").addEventListener("click", function () {
+    api("/api/plan/history").then(function (r) {
+      if (!r.text) { planMessage("Nothing recorded yet: run some flight commands first.", true); return; }
+      $("plan-text").value = r.text; planMessage(r.count + " commands loaded from the log", false); validatePlan();
+    }).catch(function (e) { planMessage(e.message, true); });
+  });
+  $("plan-dl").addEventListener("click", function () {
+    var blob = new Blob([$("plan-text").value], { type: "text/plain" });
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "flight-plan.txt";
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  });
+  $("plan-file").addEventListener("change", function (ev) {
+    var f = ev.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { $("plan-text").value = String(r.result); planMessage("Loaded " + f.name, false); validatePlan(); };
+    r.readAsText(f); ev.target.value = "";
+  });
+
+  // ---- voice: microphone capture (16 kHz mono PCM16 chunks -> server) -------------------------------
+  var micError = "";
+  var mic = { running: false, stream: null, ctx: null, src: null, node: null, chain: Promise.resolve(), backlog: 0 };
+
+  function voiceStatus(text, cls) { var el = $("voice-status"); el.textContent = text; el.className = cls || ""; }
+
+  function downsample(buf, rate) {
+    var target = 16000, ratio = rate / target, len = Math.floor(buf.length / ratio), out = new Int16Array(len);
+    for (var i = 0; i < len; i++) {
+      var start = Math.floor(i * ratio), end = Math.min(buf.length, Math.floor((i + 1) * ratio)), sum = 0;
+      for (var j = start; j < end; j++) sum += buf[j];
+      var v = Math.max(-1, Math.min(1, sum / Math.max(1, end - start)));
+      out[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    return out;
+  }
+
+  function sendAudio(int16) {
+    if (mic.backlog > 8) return;  // drop audio rather than fall behind
+    mic.backlog++;
+    var body = int16.buffer;
+    mic.chain = mic.chain.then(function () {
+      return fetch("/api/voice/audio", { method: "POST", headers: { "X-Token": token, "Content-Type": "application/octet-stream" }, body: body });
+    }).catch(function () {}).then(function () { mic.backlog--; });
+  }
+
+  function startMic() {
+    if (mic.running) return;
+    mic.running = true; micError = "";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      mic.running = false; micError = "This page cannot use the microphone (it needs localhost or https).";
+      api("/api/inputs", { voice: false }).then(poll); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+      if (!mic.running) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
+      var src = ctx.createMediaStreamSource(stream);
+      // ScriptProcessor is deprecated but works everywhere without a separate worklet file.
+      var node = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain();
+      mute.gain.value = 0;
+      node.onaudioprocess = function (e) { sendAudio(downsample(e.inputBuffer.getChannelData(0), ctx.sampleRate)); };
+      src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+      mic.stream = stream; mic.ctx = ctx; mic.src = src; mic.node = node;
+    }).catch(function (e) {
+      mic.running = false; micError = "Microphone unavailable: " + (e.message || e.name) + ". Allow microphone access for this page and switch Voice on again.";
+      api("/api/inputs", { voice: false }).then(poll);
+    });
+  }
+
+  function stopMic() {
+    mic.running = false;
+    if (mic.node) { mic.node.onaudioprocess = null; mic.node.disconnect(); }
+    if (mic.src) mic.src.disconnect();
+    if (mic.ctx) mic.ctx.close();
+    if (mic.stream) mic.stream.getTracks().forEach(function (t) { t.stop(); });
+    mic.node = mic.src = mic.ctx = mic.stream = null;
+  }
+
+  function renderVoice(s) {
+    var v = s.voice, on = s.inputs.voice;
+    $("voice-panel").classList.toggle("off", !on);
+    if (!on) {
+      voiceStatus(micError || (v.status === "error" && v.message ? "Voice unavailable: " + v.message : "Voice input is off."), micError || v.status === "error" ? "bad" : "");
+    } else if (v.status === "loading") {
+      voiceStatus(v.message || "Loading the speech model …");
+    } else if (v.status === "listening") {
+      voiceStatus(mic.running && mic.stream ? "Listening" : "Starting the microphone …", mic.running && mic.stream ? "live" : "");
+    }
+    $("voice-partial").textContent = on && v.partial ? "“" + v.partial + "”" : "";
+    var ul = $("voice-pending"); ul.textContent = "";
+    v.pending.forEach(function (p) {
+      var li = document.createElement("li"), c = document.createElement("span"), t = document.createElement("span"), b = document.createElement("button");
+      c.className = "cmd"; c.textContent = p.command;
+      t.className = "t"; t.textContent = p.remaining.toFixed(1) + " s";
+      b.type = "button"; b.className = "small secondary"; b.textContent = "Cancel";
+      b.addEventListener("click", function () { api("/api/voice/cancel", { id: p.id }).then(poll).catch(function () { poll(); }); });
+      li.appendChild(c); li.appendChild(t); li.appendChild(b); ul.appendChild(li);
+    });
+    $("voice-cancel-all").disabled = !v.pending.length;
+    var wantMic = on && v.status === "listening";
+    if (wantMic && !mic.running) startMic(); else if (!wantMic && mic.running) stopMic();
+  }
+
+  $("voice-cancel-all").addEventListener("click", function () { api("/api/voice/cancel", {}).then(poll).catch(function () { poll(); }); });
+
+  applyMode(); poll(); setInterval(poll, 1000); cmdEl.focus();
+})();
+</script>
+</body>
+</html>
